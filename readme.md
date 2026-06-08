@@ -119,6 +119,32 @@ To route your torrent tracker announces through Ratio Ghost:
 5. Set Host/Address to `127.0.0.1` and Port to `3773`.
 6. Enable the option: *"Use proxy for hostname lookups"* (or *"Use proxy for peer-to-peer connections"* if your tracker requires it, although Ratio Ghost is designed to intercept tracker requests, not peer connections).
 
+#### 🔹 qBittorrent Configuration Details
+1. Open qBittorrent and go to **Tools** -> **Options** (or press `Alt + O`).
+2. Click on the **Connection** tab in the left panel.
+3. Scroll down to the **Proxy Server** section:
+   - **Type**: Select HTTP.
+   - **Host/Address**: Enter 127.0.0.1.
+   - **Port**: Enter 3773 (or 3774 if using HTTPS tracker announces).
+4. Ensure the following options are set:
+   - **Use proxy for peer connections**: ❌ *Leave unchecked* (Ratio Ghost is not a peer proxy, routing peer data will fail).
+   - **Use proxy for torrent transmission**: Check this! (Required to route tracker announces through the proxy).
+   - **Perform hostname lookups via proxy**: Check this.
+5. Click **Apply** and **OK**.
+
+#### 🔹 uTorrent / BitTorrent Configuration Details
+1. Open uTorrent and go to **Options** -> **Preferences** (or press `Ctrl + P`).
+2. Click on the **Connection** tab in the left panel.
+3. Locate the **Proxy Server** section:
+   - **Type**: Select HTTP.
+   - **Proxy**: Enter 127.0.0.1.
+   - **Port**: Enter 3773.
+4. Ensure the following options are set:
+   - **Use proxy for peer-to-peer connections**: ❌ *Leave unchecked*.
+   - **Resolve hostnames through proxy**: Check this.
+   - **Use proxy for tracker communications**: Check this.
+5. Click **Apply** and **OK**.
+
 > [!IMPORTANT]
 > Ratio Ghost only intercepts **tracker announces**. It does not route or hide your actual peer-to-peer torrent upload/download traffic. Your IP will still be visible to other peers in the swarm.
 
