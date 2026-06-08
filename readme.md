@@ -1,4 +1,4 @@
-# 👻 Ratio Ghost
+﻿# 👻 Ratio Ghost
 
 [![Tcl/Tk Version](https://img.shields.io/badge/Tcl%2FTk-8.6-blue.svg)](http://tcl.tk/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-green.svg)](license.txt)
@@ -7,6 +7,27 @@
 Ratio Ghost is a lightweight, local HTTP/HTTPS intercepting proxy designed to automatically modify and improve your BitTorrent ratio reported to private trackers.
 
 Written in Tcl/Tk, it acts as a man-in-the-middle proxy between your BitTorrent client (e.g., uTorrent, qBittorrent) and the tracker, seamlessly adjusting your upload and download statistics on the fly.
+
+---
+
+## 📖 Usage Instructions
+
+Once Ratio Ghost is running and your torrent client is configured to route through it, you can customize how your ratio is modified:
+
+### 1. General Interface
+- **Log Tab**: Displays real-time spoofing activity. Double-click any log line to see detailed connection data and exact intercept values.
+- **Options Tab**: Where you configure the ratio-spoofing engine behavior.
+
+### 2. Spoofing Settings (Options Tab)
+- **Report download as zero**: (Highly Recommended) Freezes your reported download amount at 0.
+- **Pretend to seed**: Marks you as a seeder immediately by reporting 0 bytes left.
+- **Leechers Check**: Set the minimum leechers threshold (default is 5). If a torrent has fewer leechers, it reports actual stats to avoid looking suspicious.
+- **Multipliers**: Set the random multiplier range for both upload/download (e.g. 4.0 to 8.0 times) which will be added to your reported upload.
+- **Upload Boost**: Add a random speed boost (e.g., up to 15 KB/s with a 5% chance) to simulate real activity.
+
+### 3. Background Execution
+- **File -> Hide**: Minimizes the application to the Windows System Tray (Systray).
+- **File -> Exit**: Exits the application entirely. Alternatively, right-click the system tray icon and choose **Exit**.
 
 ---
 
