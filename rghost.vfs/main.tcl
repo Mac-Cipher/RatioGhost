@@ -21,6 +21,12 @@ catch {
     if {[starkit::startup] eq "sourced"} return
 }
 
+if {[info exists ::starkit::topdir]} {
+    set ::rg_dir $::starkit::topdir
+} else {
+    set ::rg_dir [file normalize [file dirname [info script]]]
+}
+
 
 set WINDOWS [string match Windows* $tcl_platform(os)]
 set LINUX [string match Linux* $tcl_platform(os)]

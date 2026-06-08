@@ -67,7 +67,7 @@ proc prox {local addr port {https 0}} {
         fconfigure $local -translation binary
         fconfigure $local -buffering none -blocking 0
         dlog "Initializing TLS"
-        tls::import $local -certfile tls/server.crt -keyfile tls/server.key -server true
+        tls::import $local -certfile $::cert_path -keyfile $::key_path -server true
         dlog "Accept $local from $addr port $port (https)"
     } else {
         dlog "Accept $local from $addr port $port"
@@ -192,8 +192,8 @@ proc read_first {log_num local https} {
                 if {[catch {
                     fconfigure $local -translation binary -buffering none -blocking 0
                     tls::import $local \
-                        -certfile tls/server.crt \
-                        -keyfile  tls/server.key \
+                        -certfile $::cert_path \
+                        -keyfile  $::key_path \
                         -server   true
                 } err]} {
                     dlog "TLS MITM import failed: $err"
@@ -241,8 +241,8 @@ proc read_first {log_num local https} {
                     if {[catch {
                         fconfigure $local -translation binary -buffering none -blocking 0
                         tls::import $local \
-                            -certfile tls/server.crt \
-                            -keyfile  tls/server.key \
+                            -certfile $::cert_path \
+                            -keyfile  $::key_path \
                             -server   true
                     } err]} {
                         dlog "TLS MITM import failed: $err"

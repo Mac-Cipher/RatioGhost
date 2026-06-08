@@ -211,6 +211,34 @@ proc update_status {} {
 
 
 
+# Extract TLS certificates to user's AppData profile directory so OpenSSL can access them
+set profile_dir [GetProfileDirectory]
+set target_tls_dir [file join $profile_dir tls]
+if {![file isdirectory $target_tls_dir]} {
+    catch {file mkdir $target_tls_dir}
+}
+
+if {![info exists ::rg_dir]} {
+    set ::rg_dir [file normalize [file join [file dirname [info script]] .. ..]]
+}
+
+set cert_src [file join $::rg_dir tls server.crt]
+set key_src [file join $::rg_dir tls server.key]
+
+set ::cert_path [file join $target_tls_dir server.crt]
+set ::key_path [file join $target_tls_dir server.key]
+
+if {![file exists $::cert_path] || [file size $::cert_path] == 0} {
+    if {[file exists $cert_src]} {
+        catch {file copy -force $cert_src $::cert_path}
+    }
+}
+if {![file exists $::key_path] || [file size $::key_path] == 0} {
+    if {[file exists $key_src]} {
+        catch {file copy -force $key_src $::key_path}
+    }
+}
+
 LoadSettings
 CreateGui
 

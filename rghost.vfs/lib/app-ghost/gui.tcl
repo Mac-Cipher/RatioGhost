@@ -52,7 +52,11 @@ proc CreateGui {} {
 
 
     if {!$::MAC} {
-        set logofn logo.png
+        if {[info exists ::rg_dir]} {
+            set logofn [file join $::rg_dir logo.png]
+        } else {
+            set logofn logo.png
+        }
         set logo [image create photo -file $logofn]
         set cv [ttk::label .logo -image $logo -anchor center]
         grid $cv -sticky nsew -pady 20 -padx 30
