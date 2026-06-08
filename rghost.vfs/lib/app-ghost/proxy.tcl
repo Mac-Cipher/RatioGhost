@@ -178,6 +178,38 @@ proc read_first {log_num local https} {
     update
     update
 
+    # BUG FIX: check for HTTPS CONNECT tunnel BEFORE reading any bytes.
+    # If lhost is set to host:443 we are inside a CONNECT tunnel and the next
+    # bytes will be a TLS ClientHello.  We must NOT consume those bytes before
+    # calling tls::import, otherwise the TLS handshake is corrupted.
+    if {!$https && $lhost($local) ne ""} {
+        set to [split $lhost($local) :]
+        if {[llength $to] == 2} {
+            lassign $to tohost toport
+            if {$toport == 443} {
+                dlog "HTTPS CONNECT pre-read interception for $tohost:443"
+                set tls_ok 1
+                if {[catch {
+                    fconfigure $local -translation binary -buffering none -blocking 0
+                    tls::import $local \
+                        -certfile tls/server.crt \
+                        -keyfile  tls/server.key \
+                        -server   true
+                } err]} {
+                    dlog "TLS MITM import failed: $err"
+                    set tls_ok 0
+                }
+                if {$tls_ok} {
+                    set ::intercept_real_host($local) $tohost
+                    set lhost($local) ""
+                    fileevent $local readable [list read_first $log_num $local 1]
+                    return
+                }
+                # TLS MITM failed – fall through and tunnel the raw data
+            }
+        }
+    }
+
     fconfigure $local -translation binary
     if {[eof $local] || [catch {set first_part [read $local 3]}]} {
         dlog "couldn't read first part"
@@ -197,16 +229,43 @@ proc read_first {log_num local https} {
 
     if {!($first_part eq "GET" || $first_part eq "CON")} {
         if {$lhost($local) ne ""} {
-            #puts "Requesting binary forward to $lhost($local)"
             set to [split $lhost($local) :]
             if {[llength $to] == 2} {
-                #puts "$to"
+                lassign $to tohost toport
+
+                # Remaining :443 case (fallback if pre-read MITM failed above)
+                if {$toport == 443 && !$https} {
+                    dlog "HTTPS CONNECT interception for $tohost:443 (fallback)"
+                    # Wrap the local socket in TLS server mode (MITM)
+                    set tls_ok 1
+                    if {[catch {
+                        fconfigure $local -translation binary -buffering none -blocking 0
+                        tls::import $local \
+                            -certfile tls/server.crt \
+                            -keyfile  tls/server.key \
+                            -server   true
+                    } err]} {
+                        dlog "TLS MITM import failed: $err"
+                        set tls_ok 0
+                    }
+
+                    if {$tls_ok} {
+                        # Store real tracker host so relative URL can be reconstructed
+                        set ::intercept_real_host($local) $tohost
+                        # Clear lhost so the relative-URL fallback below won't fire
+                        set lhost($local) ""
+                        # Re-arm the readable handler in HTTPS (decrypted) mode
+                        fileevent $local readable [list read_first $log_num $local 1]
+                        return
+                    }
+                    # TLS failed – fall back to plain tunnel
+                }
+
                 set ei [Event "Tunnel to peer at $lhost($local)"]
                 dlog_set $ei
-                set remote [route $local {*}$to 0]
+                set remote [route $local $tohost $toport 0]
                 if {$remote ne ""} {
                     set first($remote) $first_part
-                    #puts "Setup binary forward to $to"
                     return
                 }
             }
@@ -305,6 +364,16 @@ proc read_first {log_num local https} {
 
     if {$lhost($local) ne "" && ![string match "http*" $url]} {
         set url "http://$lhost($local)$url"
+    }
+
+    # BUG FIX: reconstruct URL for intercepted HTTPS CONNECT tunnels
+    # After TLS MITM, the client sends a relative URL (e.g. /announce?...)
+    # We stored the real tracker host in ::intercept_real_host when we did the MITM.
+    if {![string match "http*" $url] && [info exists ::intercept_real_host($local)]} {
+        set real_host $::intercept_real_host($local)
+        unset ::intercept_real_host($local)
+        set url "https://$real_host$url"
+        set https 1
     }
 
     set parse [regexp -nocase {http://([-a-z0-9.]+):?([0-9]+)?(.+)} $url _ host port rest]
@@ -526,7 +595,7 @@ proc route {local host port log_num {https 0}} {
 
     if {$https} {
         dlog "Setting to HTTPS"
-        tls::import $remote
+        catch {tls::import $remote -servername $host}
     }
 
     fconfigure $remote -buffering none -blocking 0 -encoding binary -translation binary
@@ -612,7 +681,9 @@ proc read_local {log_num ei local remote} {
     if {$port != 80} {
         set host $host:$port
     }
+    # BUG FIX: also rewrite Host header when request goes through the HTTPS port (listen_port+1)
     set l [regsub "Host: 127.0.0.1:$::settings(listen_port)" $l "Host: $host"]
+    set l [regsub "Host: 127.0.0.1:$::settings(listen_port_https)" $l "Host: $host"]
 
 
     #set ll [open $local.txt a]
@@ -644,5 +715,6 @@ proc listen args {
     set listen_socket [socket -server prox $::settings(listen_port)]
     set listen_socket_https [socket -server prox_https $::settings(listen_port_https)]
     puts "Listening with $listen_socket on $::settings(listen_port)"
-    Event "Listening on 127.0.0.1:$::settings(listen_port) & 127.0.0.1$::settings(listen_port_https)"
+    # BUG FIX: was missing ":" before listen_port_https
+    Event "Listening on 127.0.0.1:$::settings(listen_port) & 127.0.0.1:$::settings(listen_port_https)"
 }
