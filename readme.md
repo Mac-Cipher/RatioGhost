@@ -10,27 +10,6 @@ Written in Tcl/Tk, it acts as a man-in-the-middle proxy between your BitTorrent 
 
 ---
 
-## 📖 Usage Instructions
-
-Once Ratio Ghost is running and your torrent client is configured to route through it, you can customize how your ratio is modified:
-
-### 1. General Interface
-- **Log Tab**: Displays real-time spoofing activity. Double-click any log line to see detailed connection data and exact intercept values.
-- **Options Tab**: Where you configure the ratio-spoofing engine behavior.
-
-### 2. Spoofing Settings (Options Tab)
-- **Report download as zero**: (Highly Recommended) Freezes your reported download amount at 0.
-- **Pretend to seed**: Marks you as a seeder immediately by reporting 0 bytes left.
-- **Leechers Check**: Set the minimum leechers threshold (default is 5). If a torrent has fewer leechers, it reports actual stats to avoid looking suspicious.
-- **Multipliers**: Set the random multiplier range for both upload/download (e.g. 4.0 to 8.0 times) which will be added to your reported upload.
-- **Upload Boost**: Add a random speed boost (e.g., up to 15 KB/s with a 5% chance) to simulate real activity.
-
-### 3. Background Execution
-- **File -> Hide**: Minimizes the application to the Windows System Tray (Systray).
-- **File -> Exit**: Exits the application entirely. Alternatively, right-click the system tray icon and choose **Exit**.
-
----
-
 ## ✨ Key Features
 
 - **Smart Ratio Manipulation**:
@@ -46,24 +25,6 @@ Once Ratio Ghost is running and your torrent client is configured to route throu
 - **Cross-Platform & Portable**:
   - Runs on Windows, Linux, and macOS.
   - Can be built into a single, zero-dependency `.exe` binary on Windows.
-
----
-
-## 🚀 How it Works
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant TorrentClient as Torrent Client
-    participant RatioGhost as Ratio Ghost (Local Proxy)
-    participant Tracker as Torrent Tracker
-
-    TorrentClient->>RatioGhost: Announce request (Upload: 10MB, Download: 5MB)
-    Note over RatioGhost: Proxy intercepts request,<br/>calculates spoofed stats<br/>based on options.
-    RatioGhost->>Tracker: Announce request (Upload: 45MB, Download: 0MB)
-    Tracker-->>RatioGhost: Response (Peer list, tracker stats)
-    RatioGhost-->>TorrentClient: Forwarded Response
-```
 
 ---
 
@@ -86,29 +47,6 @@ Open a terminal in the project directory and run:
 ```bash
 wish rghost.vfs/main.tcl
 ```
-
----
-
-## 📦 Building & Packaging (Standalone EXE)
-
-If you have modified the source code in `rghost.vfs/` and want to compile a new standalone Windows executable:
-
-### Prerequisites
-Make sure the following files are present in the root folder:
-- [tclkit.exe](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/tclkit.exe) (32-bit Tcl/Tk runtime to ensure compatibility with native libraries like `Winico`)
-- [tclkitsh.exe](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/tclkitsh.exe) (32-bit console runtime)
-- [sdx.kit](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/sdx.kit) (Starkit Developer Extension utility)
-
-### Compilation Command
-Run the following PowerShell command in the project root:
-
-```powershell
-.\tclkitsh.exe sdx.kit wrap ratioghost.exe -runtime .\tclkit.exe -vfs rghost.vfs
-```
-
-> [!TIP]
-> **Why 32-bit?**
-> The application uses the `Winico` package for Windows system tray integration, which contains a native 32-bit DLL (`Winico06.dll`). Packaging using a 32-bit runtime avoids architecture mismatch crashes on startup.
 
 ---
 
@@ -156,6 +94,68 @@ To route your torrent tracker announces through Ratio Ghost:
 
 ---
 
+## 📖 Usage Instructions
+
+Once Ratio Ghost is running and your torrent client is configured to route through it, you can customize how your ratio is modified:
+
+### 1. General Interface
+- **Log Tab**: Displays real-time spoofing activity. Double-click any log line to see detailed connection data and exact intercept values.
+- **Options Tab**: Where you configure the ratio-spoofing engine behavior.
+
+### 2. Spoofing Settings (Options Tab)
+- **Report download as zero**: (Highly Recommended) Freezes your reported download amount at 0.
+- **Pretend to seed**: Marks you as a seeder immediately by reporting 0 bytes left.
+- **Leechers Check**: Set the minimum leechers threshold (default is 5). If a torrent has fewer leechers, it reports actual stats to avoid looking suspicious.
+- **Multipliers**: Set the random multiplier range for both upload/download (e.g. 4.0 to 8.0 times) which will be added to your reported upload.
+- **Upload Boost**: Add a random speed boost (e.g., up to 15 KB/s with a 5% chance) to simulate real activity.
+
+### 3. Background Execution
+- **File -> Hide**: Minimizes the application to the Windows System Tray (Systray).
+- **File -> Exit**: Exits the application entirely. Alternatively, right-click the system tray icon and choose **Exit**.
+
+---
+
+## 🚀 How it Works
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant TorrentClient as Torrent Client
+    participant RatioGhost as Ratio Ghost (Local Proxy)
+    participant Tracker as Torrent Tracker
+
+    TorrentClient->>RatioGhost: Announce request (Upload: 10MB, Download: 5MB)
+    Note over RatioGhost: Proxy intercepts request,<br/>calculates spoofed stats<br/>based on options.
+    RatioGhost->>Tracker: Announce request (Upload: 45MB, Download: 0MB)
+    Tracker-->>RatioGhost: Response (Peer list, tracker stats)
+    RatioGhost-->>TorrentClient: Forwarded Response
+```
+
+---
+
+## 📦 Building & Packaging (Standalone EXE)
+
+If you have modified the source code in `rghost.vfs/` and want to compile a new standalone Windows executable:
+
+### Prerequisites
+Make sure the following files are present in the root folder:
+- [tclkit.exe](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/tclkit.exe) (32-bit Tcl/Tk runtime to ensure compatibility with native libraries like `Winico`)
+- [tclkitsh.exe](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/tclkitsh.exe) (32-bit console runtime)
+- [sdx.kit](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/sdx.kit) (Starkit Developer Extension utility)
+
+### Compilation Command
+Run the following PowerShell command in the project root:
+
+```powershell
+.\tclkitsh.exe sdx.kit wrap ratioghost.exe -runtime .\tclkit.exe -vfs rghost.vfs
+```
+
+> [!TIP]
+> **Why 32-bit?**
+> The application uses the `Winico` package for Windows system tray integration, which contains a native 32-bit DLL (`Winico06.dll`). Packaging using a 32-bit runtime avoids architecture mismatch crashes on startup.
+
+---
+
 ## 📂 Project Architecture
 
 - [rghost.vfs/](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs): The Virtual File System containing code and assets.
@@ -171,4 +171,3 @@ To route your torrent tracker announces through Ratio Ghost:
 ## 📝 License
 
 Distributed under the GNU General Public License v3. See [license.txt](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/license.txt) for more details.
-
