@@ -70,8 +70,14 @@ sequenceDiagram
 ## 🛠️ Getting Started
 
 ### 1. Pre-built Executable (Windows)
-Simply run the standalone [ratioghost.exe](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/ratioghost.exe) binary. 
-It requires no installation and runs completely out-of-the-box.
+To run Ratio Ghost without any installation or compilation:
+
+1. Go to the [Releases](https://github.com/Mac-Cipher/RatioGhost/releases) page.
+2. Download the **`ratioghost.exe`** file from the latest version.
+3. Double-click the downloaded file to launch the application.
+
+> [!NOTE]
+> If Windows Defender or your web browser displays a security warning (SmartScreen), this is because the standalone executable is not digitally signed. You can safely bypass this by clicking **"More info"** and then **"Run anyway"**.
 
 ### 2. Running From Source
 To run Ratio Ghost from the source code, you need [Tcl/Tk](http://tcl.tk/) version **8.6** installed.
@@ -165,3 +171,4 @@ To route your torrent tracker announces through Ratio Ghost:
 ## 📝 License
 
 Distributed under the GNU General Public License v3. See [license.txt](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/license.txt) for more details.
+
