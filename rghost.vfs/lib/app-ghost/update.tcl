@@ -31,24 +31,24 @@ set check 0
 set skip_update 0
 set checking_update 0
 
+# Update checker disabled - ratioghost.com is no longer available.
+# To re-enable, replace the URL with a working update endpoint.
 proc check_for_updates {} {
-    global build check
-
-    incr check
-
-    set url "http://ratioghost.com/update?version=$build&check=$check&id=$::settings(id)"
-
-    if {$::settings(update)} {
-        puts "Checking for updates"
-
-        if {[set ec [catch {set r [::http::geturl $url -command update_complete -timeout 60000]} err]]} {
-            puts "Couldn't check for update:"
-            puts "error:$ec $err"
-        }
-
-    }
-
-    after [expr {1000 * 60 * 60 * 2}] check_for_updates
+    # Disabled: original update server (ratioghost.com) is no longer reachable.
+    # Uncomment and update the URL below to re-enable update checking.
+    #
+    # global build check
+    # incr check
+    # set url "https://your-update-server.com/update?version=$build&check=$check"
+    # if {$::settings(update)} {
+    #     puts "Checking for updates"
+    #     if {[set ec [catch {set r [::http::geturl $url -command update_complete -timeout 60000]} err]]} {
+    #         puts "Couldn't check for update:"
+    #         puts "error:$ec $err"
+    #     }
+    # }
+    # after [expr {1000 * 60 * 60 * 2}] check_for_updates
+    return
 }
 
 
@@ -66,7 +66,7 @@ proc update_complete {r} {
     if {$ncode == 200 && [string match *yes* $data]} {
         set r [tk_messageBox -title "Ratio Ghost Update Available" -message "There is a new version of Ratio Ghost available. Updating to the latest version is highly recommended. Would you like to update now?" -type yesno]
         if {$r eq {yes}} {
-            OpenDocument http://RatioGhost.com/download
+            OpenDocument https://github.com/Mac-Cipher/RatioGhost/releases
         } else {
             set ::skip_update 1
         }
@@ -78,5 +78,5 @@ proc update_complete {r} {
 }
 
 
-
-after 15000 check_for_updates
+# Disabled: update checker no longer runs automatically.
+# after 15000 check_for_updates

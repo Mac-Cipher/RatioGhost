@@ -19,7 +19,13 @@ package provide app-util 1.0
 
 proc OpenDocument {filename} {
     if {[catch {
-        exec rundll32.exe url.dll,FileProtocolHandler $filename &
+        if {$::WINDOWS} {
+            exec rundll32.exe url.dll,FileProtocolHandler $filename &
+        } elseif {$::LINUX} {
+            exec xdg-open $filename &
+        } elseif {$::MAC} {
+            exec open $filename &
+        }
     }]} {
         tk_messageBox -icon error -title "File Open Error" -message "Error opening $filename."
     }
@@ -31,13 +37,21 @@ proc GetProfileDirectory {} {
 
     if {[file exists settings.dat]} {return [pwd]}
 
-    if {!$::WINDOWS} {
+    if {$::WINDOWS} {
+        set parent $env(APPDATA)
+        set path [file join $parent RatioGhost]
+    } elseif {$::MAC} {
+        set path [file join $env(HOME) Library "Application Support" RatioGhost]
+    } elseif {$::LINUX} {
+        if {[info exists env(XDG_CONFIG_HOME)]} {
+            set path [file join $env(XDG_CONFIG_HOME) RatioGhost]
+        } else {
+            set path [file join $env(HOME) .config RatioGhost]
+        }
+    } else {
         return [pwd]
     }
 
-
-    set parent $env(APPDATA)
-    set path [file join $parent RatioGhost]
     if {![file isdirectory $path]} {file mkdir $path}
 
     return $path
@@ -50,11 +64,13 @@ proc ValidateReal {num} {
 
 
 proc ValidatePer {num} {
+    if {$num eq ""} {return 1}
     if {![regexp -- {^1?[0-9]{0,2}$} $num]} {return 0}
     return [expr {$num <= 100}]
 }
 
 proc ValidatePort {num} {
+    if {$num eq ""} {return 1}
     if {![regexp -- {^[0-9]{0,5}$} $num]} {return 0}
     return [expr {$num <= 65534}]
 }
@@ -63,7 +79,7 @@ proc ValidatePort {num} {
 proc FormatData {num} {
     set post {B}
 
-    if {$num eq 0} {return 0}
+    if {$num == 0} {return 0}
 
     foreach n {1099511627776 1073741824 1048576 1024} p {TB GB MB KB} {
         if {$num > $n} {
@@ -85,7 +101,7 @@ proc FormatData {num} {
 proc FormatElapsed {num} {
     set post {s}
 
-    if {$num eq 0} {return 0}
+    if {$num == 0} {return 0}
 
     foreach n {86400 3600 60} p {d h m} {
         if {$num > $n} {

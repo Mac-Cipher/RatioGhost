@@ -14,8 +14,25 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# Initialize debug log
+catch {
+    set fd [open "C:/Users/LUCAS/AppData/Roaming/RatioGhost/debug_app_err.txt" w]
+    puts $fd "main.tcl started"
+    close $fd
+}
+
+proc dlog_main {msg} {
+    catch {
+        set fd [open "C:/Users/LUCAS/AppData/Roaming/RatioGhost/debug_app_err.txt" a]
+        puts $fd $msg
+        close $fd
+    }
+}
+
+dlog_main "Setting auto_path..."
 set auto_path [linsert $auto_path 0 ./rghost.vfs/lib]
 
+dlog_main "Checking starkit..."
 catch {
     package require starkit
     if {[starkit::startup] eq "sourced"} return
@@ -27,29 +44,45 @@ if {[info exists ::starkit::topdir]} {
     set ::rg_dir [file normalize [file dirname [info script]]]
 }
 
+dlog_main "rg_dir is $::rg_dir"
 
 set WINDOWS [string match Windows* $tcl_platform(os)]
 set LINUX [string match Linux* $tcl_platform(os)]
 if {!$WINDOWS && !$LINUX} {set MAC 1} else {set MAC 0}
 
+dlog_main "Platform flags: WINDOWS=$WINDOWS, LINUX=$LINUX, MAC=$MAC"
 
 if {$::WINDOWS} {
-    package require dde
-
-    set topicName RatioGhost2015
-
-    set otherServices [dde services TclEval $topicName]
-    if {[llength $otherServices] > 0} {
-        dde execute TclEval $topicName {
-            wm deiconify .
-            raise .
-            bell
-        }
-        exit
+    dlog_main "Loading dde..."
+    if {[catch {package require dde} err]} {
+        dlog_main "DDE package require failed: $err"
     }
 
-    dde servername $topicName
+    set topicName RatioGhost2015
+    dlog_main "Checking DDE services..."
 
+    if {[catch {
+        set otherServices [dde services TclEval $topicName]
+        dlog_main "Other services found: [llength $otherServices]"
+        if {[llength $otherServices] > 0} {
+            dlog_main "Bringing other service to front and exiting..."
+            dde execute TclEval $topicName {
+                wm deiconify .
+                raise .
+                bell
+            }
+            exit
+        }
+    } err]} {
+        dlog_main "DDE check failed: $err"
+    }
+
+    if {[catch {
+        dde servername $topicName
+        dlog_main "Registered DDE servername $topicName"
+    } err]} {
+        dlog_main "DDE servername registration failed: $err"
+    }
 
     if {![info exists env(APPDATA)]} {
         tk_messageBox -icon error -title "Ratio Ghost" -message "Sorry, your version of Windows is not supported. Please consider upgrading."
@@ -57,7 +90,11 @@ if {$::WINDOWS} {
     }
 }
 
-
-
-
-package require app-ghost
+dlog_main "Requiring package app-ghost..."
+if {[catch {
+    package require app-ghost
+    dlog_main "Package app-ghost loaded successfully!"
+} err]} {
+    dlog_main "ERROR loading package app-ghost: $err"
+    dlog_main "errorInfo:\n$::errorInfo"
+}

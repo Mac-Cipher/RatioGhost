@@ -15,8 +15,8 @@
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-set build 521
-set version 0.17
+set build 522
+set version 0.19
 
 
 package provide app-ghost 1.0
@@ -64,16 +64,77 @@ if {[file exists $boot_script]} {
 set setting_file [file join [GetProfileDirectory] settings.dat]
 
 
+proc ApplyAutostart {args} {
+    if {!$::WINDOWS} return
+    if {[catch {package require registry} err]} {
+        puts "Error: registry package not available: $err"
+        return
+    }
+    set regPath "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+    if {$::settings(autostart)} {
+        set cmd "\"[file nativename [info nameofexecutable]]\" m"
+        if {[catch {registry set $regPath "RatioGhost" $cmd} err]} {
+            puts "Error setting registry: $err"
+        }
+    } else {
+        if {[catch {registry delete $regPath "RatioGhost"} err]} {
+            # Might not exist, which is fine
+        }
+    }
+    catch {SaveSettings}
+}
+
+proc SyncAutostart {} {
+    if {!$::WINDOWS} return
+    if {[catch {package require registry} err]} return
+    set regPath "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+    set exists 0
+    if {![catch {set val [registry get $regPath "RatioGhost"]}]} {
+        set exists 1
+        set expected "\"[file nativename [info nameofexecutable]]\" m"
+        if {$val ne $expected && $::settings(autostart)} {
+            catch {registry set $regPath "RatioGhost" $expected}
+        }
+    }
+    if {$exists && !$::settings(autostart)} {
+        set ::settings(autostart) 1
+    } elseif {!$exists && $::settings(autostart)} {
+        set ::settings(autostart) 0
+    }
+}
+
+
+
 proc LoadSettings {} {
     global setting_file
+    set loaded 0
     if {[file exists $setting_file]} {
-        set si [open $setting_file r]
-        set d [read $si]
-        close $si
+        if {[catch {
+            set si [open $setting_file r]
+            set d [read $si]
+            close $si
+            array set ::settings $d
+            set loaded 1
+        } err]} {
+            puts "Warning: Could not load settings: $err"
+            # Try loading from backup
+            set bak_file "$setting_file.bak"
+            if {[file exists $bak_file]} {
+                if {[catch {
+                    set si [open $bak_file r]
+                    set d [read $si]
+                    close $si
+                    array set ::settings $d
+                    set loaded 1
+                    puts "Loaded settings from backup."
+                } err2]} {
+                    puts "Warning: Could not load backup settings: $err2"
+                }
+            }
+        }
+    }
 
-        array set ::settings $d
-    } else {
-
+    if {!$loaded} {
         array set ::settings {}
     }
 
@@ -91,6 +152,7 @@ proc LoadSettings {} {
     lappend defaults only_tracker 1
     lappend defaults only_local 1
     lappend defaults update 1
+    lappend defaults autostart 0
 
     lappend defaults min_peers 5
     lappend defaults upup_ratio_a 4.0
@@ -132,11 +194,24 @@ proc SaveSettings {} {
     incr s(reported_down) $::reported_down
     incr s(reported_up) $::reported_up
 
-    set :s(geometry) [wm geometry .]
+    set s(geometry) [wm geometry .]
 
-    set si [open $setting_file w]
-    puts -nonewline $si [array get s]
-    close $si
+    # Atomic save: write to .tmp, then rename with .bak backup
+    set tmp_file "$setting_file.tmp"
+    set bak_file "$setting_file.bak"
+    if {[catch {
+        set si [open $tmp_file w]
+        puts -nonewline $si [array get s]
+        close $si
+        # Create backup of current settings
+        if {[file exists $setting_file]} {
+            catch {file copy -force $setting_file $bak_file}
+        }
+        file rename -force $tmp_file $setting_file
+    } err]} {
+        puts "Warning: Could not save settings: $err"
+        catch {file delete $tmp_file}
+    }
 }
 
 
@@ -171,11 +246,10 @@ proc Kill {} {
 proc update_status {} {
     after 2000 update_status
 
-    if {[wm state .] eq "withdrawn"} {return}
-
     global status
     global actual_up actual_down reported_up reported_down
 
+    # Always compute counters (even when minimized) so SaveSettings has correct values
     set actual_up 0
     set actual_down 0
     set reported_up 0
@@ -202,11 +276,19 @@ proc update_status {} {
         incr reported_up $u
     }
 
+    # Skip UI update when window is withdrawn (minimized to tray)
+    if {[wm state .] eq "withdrawn"} {return}
+
     set elapsed [expr {[clock seconds] - $::settings(start)}]
-    set status "Uptime: [FormatElapsed $elapsed]   "
-    append status "Torrents: $torrents   "
-    append status "Actual down/up: [FormatData $actual_down]/[FormatData $actual_up]   "
-    append status "Reported down/up: [FormatData $reported_down]/[FormatData $reported_up]"
+    set status "Uptime: [FormatElapsed $elapsed]   |   "
+    append status "Torrents: $torrents   |   "
+    append status "Actual: [FormatData $actual_down] down / [FormatData $actual_up] up   |   "
+    append status "Reported: [FormatData $reported_down] down / [FormatData $reported_up] up"
+
+    # Show pause state in status
+    if {[info exists ::paused] && $::paused} {
+        append status "   |   \u23F8 PAUSED"
+    }
 }
 
 
@@ -241,6 +323,11 @@ if {![file exists $::key_path] || [file size $::key_path] == 0} {
 
 LoadSettings
 CreateGui
+
+if {$::WINDOWS} {
+    trace add variable ::settings(autostart) write ApplyAutostart
+    SyncAutostart
+}
 
 update_status
 

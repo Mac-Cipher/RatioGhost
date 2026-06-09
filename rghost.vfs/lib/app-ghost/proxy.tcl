@@ -17,7 +17,6 @@
 
 
 
-
 # This code is a huge mess. It's so bad that I think you deserve an explanation.
 # Here's how it ended up this way:
 # 1) There was no planning. This all grew organically over many years.
@@ -39,6 +38,7 @@ package require tls
 
 
 expr {srand([clock seconds])}
+set ::paused 0
 
 
 
@@ -55,9 +55,22 @@ proc prox {local addr port {https 0}} {
     if {$::settings(only_local)} {
         if {$addr ne "127.0.0.1"} {
             Event "Blocked request from $addr:$port."
-            close $local
+            cleanup_connection $local
             return
         }
+    }
+
+    # Rate limiting: max 50 connections per second
+    set now [clock seconds]
+    if {![info exists ::rate_limit_time] || $::rate_limit_time != $now} {
+        set ::rate_limit_time $now
+        set ::rate_limit_count 0
+    }
+    incr ::rate_limit_count
+    if {$::rate_limit_count > 50} {
+        dlog "Rate limit exceeded ($::rate_limit_count connections in 1s)"
+        catch {close $local}
+        return
     }
 
     dlog_new
@@ -166,6 +179,24 @@ proc dlog_set {where} {
 }
 
 
+# Centralized connection cleanup — ensures all tracking arrays are cleared
+proc cleanup_connection {local {remote ""}} {
+    catch {close $local}
+    catch {unset ::linfo($local)}
+    catch {unset ::lhost($local)}
+    catch {unset ::intercept_real_host($local)}
+    catch {unset ::first_line_accumulator($local)}
+    catch {unset ::extra_data($local)}
+    if {$remote ne ""} {
+        catch {close $remote}
+        catch {unset ::rinfo($remote)}
+        catch {unset ::first($remote)}
+        catch {after cancel $::socket_timeout($remote)}
+        catch {unset ::socket_timeout($remote)}
+    }
+}
+
+
 array set hosts {}
 
 proc read_first {log_num local https} {
@@ -173,10 +204,7 @@ proc read_first {log_num local https} {
 
     dlog "read_first $log_num $local $https"
     fileevent $local readable ""
-    update
-    after 50
-    update
-    update
+    update idletasks
 
     # BUG FIX: check for HTTPS CONNECT tunnel BEFORE reading any bytes.
     # If lhost is set to host:443 we are inside a CONNECT tunnel and the next
@@ -205,7 +233,7 @@ proc read_first {log_num local https} {
                     fileevent $local readable [list read_first $log_num $local 1]
                     return
                 }
-                # TLS MITM failed – fall through and tunnel the raw data
+                # TLS MITM failed - fall through and tunnel the raw data
             }
         }
     }
@@ -213,7 +241,7 @@ proc read_first {log_num local https} {
     fconfigure $local -translation binary
     if {[eof $local] || [catch {set first_part [read $local 3]}]} {
         dlog "couldn't read first part"
-        close $local
+        cleanup_connection $local
         return
     }
 
@@ -258,7 +286,7 @@ proc read_first {log_num local https} {
                         fileevent $local readable [list read_first $log_num $local 1]
                         return
                     }
-                    # TLS failed – fall back to plain tunnel
+                    # TLS failed - fall back to plain tunnel
                 }
 
                 set ei [Event "Tunnel to peer at $lhost($local)"]
@@ -272,7 +300,7 @@ proc read_first {log_num local https} {
         } elseif {$first_part eq "POS"} {
             #some clients use this for tracking and stuff
             #just kill it
-            close $local
+            cleanup_connection $local
             return
         } else {
             dlog "Is this an https connection?"
@@ -280,7 +308,7 @@ proc read_first {log_num local https} {
 
             if {$https} {
                 dlog "Already tried that"
-                close $local
+                cleanup_connection $local
                 return
             }
 
@@ -295,34 +323,56 @@ proc read_first {log_num local https} {
 
         }
 
-        close $local
+        cleanup_connection $local
         return
     }
 
-    #we read until we find an end of line or timeout
-    #TCL's gets should work here, but doesn't for some reason when we're using TLS
-    set line $first_part
-    set timeout [clock seconds]
-    dlog "Reading first line"
+    # Now we know it is GET or CONNECT
+    set ::first_line_accumulator($local) $first_part
+    fconfigure $local -blocking 0
+    fileevent $local readable [list read_first_line $log_num $local $https [clock seconds]]
+}
 
-    while {1} {
-        update
-
-        if {[clock seconds] - $timeout > 2} {
-            dlog "Timeout while waiting for first line"
-            close $local
-            return
-        }
-
-        if {[eof $local] || [catch {set k [read $local 1]}]} {
-            update
-        }
-
-        if {$k eq "\r"} continue
-        if {$k eq "\n"} break
-
-        set line "$line$k"
+proc read_first_line {log_num local https start_time} {
+    if {[clock seconds] - $start_time > 3} {
+        dlog "Timeout while waiting for first line"
+        cleanup_connection $local
+        return
     }
+
+    if {[eof $local]} {
+        dlog "EOF while reading first line"
+        cleanup_connection $local
+        return
+    }
+
+    if {[catch {set data [read $local]} err]} {
+        dlog "Error reading: $err"
+        cleanup_connection $local
+        return
+    }
+
+    if {$data eq ""} return
+
+    append ::first_line_accumulator($local) $data
+
+    # Look for the end of the first line (\n)
+    set idx [string first "\n" $::first_line_accumulator($local)]
+    if {$idx != -1} {
+        fileevent $local readable ""
+        set line [string range $::first_line_accumulator($local) 0 $idx]
+        set extra [string range $::first_line_accumulator($local) [expr {$idx + 1}] end]
+        unset ::first_line_accumulator($local)
+        if {$extra ne ""} {
+            set ::extra_data($local) $extra
+        }
+        set line [string trimright $line "\r\n"]
+        process_first_line $log_num $local $https $line
+    }
+}
+
+proc process_first_line {log_num local https line} {
+    global rinfo first linfo lhost
 
     dlog $line
 
@@ -334,7 +384,7 @@ proc read_first {log_num local https} {
     } else {
         dlog "Unknown request"
         puts "`$lhost($local)` UNKNOWN: `$line`"
-        close $local
+        cleanup_connection $local
         return
     }
 
@@ -345,7 +395,7 @@ proc read_first {log_num local https} {
 
 
     if {$url eq {}} {
-        close $local
+        cleanup_connection $local
         return
     }
 
@@ -353,6 +403,9 @@ proc read_first {log_num local https} {
         set lhost($local) $url
         fconfigure $local -buffering none -blocking 0
         set l [read $local]
+        if {$l ne ""} {
+            append ::extra_data($local) $l
+        }
         set reply "HTTP/1.0 200 Connection Established\nStartTime: [clock format [clock seconds] -format %H:%M:%S]\nConnection: close\n\n"
         puts -nonewline $local $reply
         flush $local
@@ -376,16 +429,15 @@ proc read_first {log_num local https} {
         set https 1
     }
 
-    set parse [regexp -nocase {http://([-a-z0-9.]+):?([0-9]+)?(.+)} $url _ host port rest]
+    # Unified HTTP/HTTPS URL parsing (fixes Bug 1.3 - HTTPS URLs with explicit ports)
+    set parse [regexp -nocase {https?://([-a-zA-Z0-9._]+):?([0-9]+)?(.+)} $url _ host port rest]
     if {!$parse} {
-        if {[regexp -nocase {https://([-a-z0-9.]+):?([0-9]+)?(.+)} $url _ host port rest]} {
-            dlog_set [Event "($host) HTTPS requested"]
-            set https 1
-        } else {
-            dlog_set [Event "Couldn't parse $url"]
-        }
-        close $local
+        dlog_set [Event "Couldn't parse $url"]
+        cleanup_connection $local
         return
+    }
+    if {[string match -nocase "https:*" $url]} {
+        set https 1
     }
     if {![info exists port] || $port eq {}} {
         if {$https} {
@@ -408,6 +460,9 @@ proc read_first {log_num local https} {
             set ::hosts($host:$port) 1
         }
 
+        # Store tracker info for the Torrents tab
+        set ::hash_tracker_temp($log_num) "$host:$port"
+
         #Extract some query string parameters
         set types {downloaded uploaded left info_hash event}
         foreach type $types {
@@ -417,6 +472,11 @@ proc read_first {log_num local https} {
         }
 
         set ::hash_lookup($log_num) $info_hash
+        # Store tracker hostname per info_hash for the Torrents tab
+        set ::hash_tracker($info_hash) "$host:$port"
+
+        # Debug: log raw announce values
+        dlog "RAW ANNOUNCE: hash=[string range $info_hash 0 7]... down=$downloaded up=$uploaded left=$left event=$event"
 
         if {$downloaded ne {} && $uploaded ne {} && $left ne {}} {
             #Have the basic tracker update parameters - mess with them.
@@ -475,7 +535,11 @@ proc read_first {log_num local https} {
 
             dlog "Last number of leechers was: $last_peers"
 
-            if {$last_peers >= $::settings(min_peers)} {
+            if {[info exists ::paused] && $::paused} {
+                # Paused mode - report actual values without modification
+                dlog "PAUSED - passing through actual values"
+
+            } elseif {$last_peers >= $::settings(min_peers)} {
 
                 set down_ratio [expr {$::settings(updown_ratio_b) + rand() * ($::settings(updown_ratio_a) - $::settings(updown_ratio_b))}]
                 set up_ratio [expr {$::settings(upup_ratio_b) + rand() * ($::settings(upup_ratio_a) - $::settings(upup_ratio_b))}]
@@ -518,7 +582,7 @@ proc read_first {log_num local https} {
                         reported_previous_down reported_previous_up reported_previous_left uploaded downloaded left] {
                             dlog "DEBUG $e [set $e]"
                         }
-                        close $local
+                        cleanup_connection $local
                         return
                 }
             }
@@ -559,7 +623,7 @@ proc read_first {log_num local https} {
             dlog "Blocking non-tracker traffic."
             set ei [Event "$host:$port Blocked non-tracker traffic."]
             dlog_set $ei
-            close $local
+            cleanup_connection $local
             return
         } else {
             dlog "Forwarding non-tracker traffic."
@@ -578,6 +642,11 @@ proc read_first {log_num local https} {
 }
 
 
+# Timeout handler for remote socket connections
+proc socket_timeout {remote local} {
+    cleanup_connection $local $remote
+}
+
 proc route {local host port log_num {https 0}} {
     upvar 1 ei ei
     global rinfo linfo
@@ -589,9 +658,12 @@ proc route {local host port log_num {https 0}} {
         dlog "Couldn't open socket to remote host."
         dlog $err
         EventAppend $ei " (error)"
-        close $local
+        cleanup_connection $local
         return ""
     }
+
+    # Set connection timeout (30 seconds)
+    set ::socket_timeout($remote) [after 30000 [list socket_timeout $remote $local]]
 
     if {$https} {
         dlog "Setting to HTTPS"
@@ -613,10 +685,14 @@ proc route {local host port log_num {https 0}} {
 
 proc read_remote {log_num ei local remote} {
     global rinfo linfo
+
+    # Cancel connection timeout on first data received
+    catch {after cancel $::socket_timeout($remote)}
+    catch {unset ::socket_timeout($remote)}
+
     if {[eof $remote] || [catch {set l [read $remote]}]} {
         dlog "Closed remote - $local <-> $remote - $linfo($local) <-> $rinfo($remote)"
-        close $remote
-        close $local
+        cleanup_connection $local $remote
         return
     }
     if {$l eq {}} return
@@ -666,11 +742,14 @@ proc read_local {log_num ei local remote} {
     global rinfo linfo first
     if {[eof $local] || [catch {set l [read $local]}]} {
         dlog "Closed local - $local <-> $remote - $linfo($local) <-> $rinfo($remote)"
-        close $local
-        close $remote
+        cleanup_connection $local $remote
         return
     }
-    if {$l eq {}} return
+    if {$l eq {} && ![info exists ::extra_data($local)]} return
+    if {[info exists ::extra_data($local)]} {
+        set l "$::extra_data($local)$l"
+        unset ::extra_data($local)
+    }
     if {[info exists first($remote)]} {
         set l "$first($remote)$l"
         unset first($remote)
@@ -708,8 +787,8 @@ proc listen args {
     set ::settings(listen_port_https) [expr {$::settings(listen_port)+1}]
 
     if {[info exists listen_socket] && $listen_socket ne {}} {
-        close $listen_socket
-        close $listen_socket_https
+        catch {close $listen_socket}
+        catch {close $listen_socket_https}
     }
 
     set listen_socket [socket -server prox $::settings(listen_port)]

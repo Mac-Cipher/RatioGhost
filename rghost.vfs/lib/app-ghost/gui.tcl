@@ -28,11 +28,24 @@ proc CreateGui {} {
     global status
     set status ""
 
+    # Apply modern theme
+    if {$::WINDOWS} {
+        catch {ttk::style theme use vista}
+    } else {
+        catch {ttk::style theme use clam}
+    }
+
+    # Custom styles
+    ttk::style configure TNotebook -tabmargins {2 5 2 0}
+    ttk::style configure TNotebook.Tab -padding {12 4}
+    ttk::style configure TLabel -padding {2 2}
+
     option add *tearOff 0
 
     wm withdraw .
     update idletasks
     wm title . "Ratio Ghost"
+    wm minsize . 700 450
 
     menu .menubar
     . configure -menu .menubar
@@ -41,6 +54,8 @@ proc CreateGui {} {
     .menubar add cascade -menu .menubar.file -label File -underline 0
     if {$::WINDOWS} {.menubar.file add command -label "Hide" -underline 0 -command {Hide}}
     .menubar.file add command -label "Exit" -underline 1 -command {Close}
+    .menubar.file add separator
+    .menubar.file add command -label "Export Log..." -underline 0 -command {ExportLog}
 
     menu .menubar.help
     .menubar add cascade -menu .menubar.help -label Help -underline 0
@@ -59,17 +74,20 @@ proc CreateGui {} {
         }
         set logo [image create photo -file $logofn]
         set cv [ttk::label .logo -image $logo -anchor center]
-        grid $cv -sticky nsew -pady 20 -padx 30
+        grid $cv -sticky nsew -pady 10 -padx 30
         grid rowconfigure . 0 -weight 0
     }
 
     set nb [ttk::notebook .nb]
 
     set log [CreateLog .nb.log]
-    $nb add $log -text Log
+    $nb add $log -text "  Log  "
 
     set options [CreateOptions .nb.options]
-    $nb add $options -text Options
+    $nb add $options -text "  Options  "
+
+    set torrents [CreateTorrentsTab .nb.torrents]
+    $nb add $torrents -text "  Torrents  "
 
 
     .nb select .nb.log
@@ -78,7 +96,14 @@ proc CreateGui {} {
     grid columnconfigure . all -weight 1
     grid rowconfigure . 1 -weight 1
 
-    grid [ttk::label .status -textvariable status -anchor center] -sticky ew
+    # Enhanced status bar with Pause/Resume toggle
+    set statusbar [ttk::frame .statusbar -padding {8 4}]
+    ttk::label $statusbar.indicator -text "\u25CF" -foreground [expr {$::paused ? "#FFA500" : "#4CAF50"}]
+    ttk::label $statusbar.status -textvariable status -anchor w
+    ttk::button $statusbar.pause -text [expr {$::paused ? "Resume" : "Pause"}] -command TogglePause
+    grid $statusbar.indicator $statusbar.status $statusbar.pause -sticky ew -padx 4
+    grid columnconfigure $statusbar 1 -weight 1
+    grid $statusbar -sticky ew
 
 
     if {[info exists ::settings(geometry)]} {
@@ -111,6 +136,7 @@ proc CreateTrayIcon {} {
     set icon [winico load TK]
 
     set tray_menu [menu .popup]
+    $tray_menu add command -label [expr {$::paused ? "Resume Ratio Ghost" : "Pause Ratio Ghost"}] -command TogglePause -underline 0
     $tray_menu add command -label "Hide Ratio Ghost" -command Hide -underline 6
     $tray_menu add command -label "Exit" -command Close -underline 2
 
@@ -140,32 +166,78 @@ proc Hide {} {
 
     global last_state tray_menu
     if {[wm state .] eq "withdrawn"} {
-        $tray_menu entryconfigure 0 -label "Hide Ratio Ghost" -underline 6
+        $tray_menu entryconfigure 1 -label "Hide Ratio Ghost" -underline 6
         wm state . $last_state
         wm deiconify .
     } else {
-        $tray_menu entryconfigure 0 -label "Show Ratio Ghost" -underline 6
+        $tray_menu entryconfigure 1 -label "Show Ratio Ghost" -underline 6
         set last_state [wm state .]
         wm withdraw .
     }
 }
 
 
+proc TogglePause {} {
+    global tray_menu
+    if {$::paused} {
+        set ::paused 0
+        catch {.statusbar.indicator configure -foreground "#4CAF50"}
+        catch {.statusbar.pause configure -text "Pause"}
+        if {[info exists tray_menu]} {
+            catch {$tray_menu entryconfigure 0 -label "Pause Ratio Ghost"}
+        }
+        Event "Proxy resumed - ratio modifying active"
+    } else {
+        set ::paused 1
+        catch {.statusbar.indicator configure -foreground "#FFA500"}
+        catch {.statusbar.pause configure -text "Resume"}
+        if {[info exists tray_menu]} {
+            catch {$tray_menu entryconfigure 0 -label "Resume Ratio Ghost"}
+        }
+        Event "Proxy paused - passing through actual stats"
+    }
+    update_status
+}
+
+
+set ::log_filter ""
+
 proc CreateLog {name} {
     global lb
 
-    ttk::frame $name -padding 20
+    ttk::frame $name -padding 10
 
-    set lb [listbox $name.l1 -selectmode single -yscrollcommand [list $name.scroll set]]
-    set scroll [scrollbar $name.scroll -orient vertical -command [list $lb yview]]
-    grid $lb $scroll -sticky nsew
+    # Search/filter bar
+    set search_frame [ttk::frame $name.search]
+    ttk::label $search_frame.lbl -text "Filter:"
+    ttk::entry $search_frame.entry -textvariable ::log_filter -width 30
+    ttk::button $search_frame.clear -text "Clear" -command {set ::log_filter ""; FilterLog}
+    grid $search_frame.lbl $search_frame.entry $search_frame.clear -padx 4 -sticky w
+    grid $search_frame -sticky ew -pady {0 8}
+
+    set lb [text $name.l1 -state disabled -wrap none -yscrollcommand [list $name.scroll set] \
+        -font {Consolas 9} -background "#1e1e1e" -foreground "#d4d4d4" \
+        -selectbackground "#264f78" -insertbackground "#d4d4d4" \
+        -relief flat -borderwidth 1 -padx 8 -pady 4]
+    set scroll [ttk::scrollbar $name.scroll -orient vertical -command [list $lb yview]]
+    grid $lb $scroll -sticky nsew -row 1
 
     grid columnconfigure $name 0 -weight 1
-    grid rowconfigure $name 0 -weight 1
+    grid rowconfigure $name 1 -weight 1
 
     ::autoscroll::autoscroll $scroll
 
-    bind $lb <Double-ButtonPress-1> [list EventLogShow %W %x %y]
+    # Color tags for different event types
+    $lb tag configure success -foreground "#4EC9B0"
+    $lb tag configure error -foreground "#F44747"
+    $lb tag configure warning -foreground "#CCA700"
+    $lb tag configure info -foreground "#569CD6"
+    $lb tag configure blocked -foreground "#808080"
+    $lb tag configure timestamp -foreground "#6A9955"
+    $lb tag configure highlight -background "#3a3d41"
+
+    bind $lb <Double-ButtonPress-1> [list EventLogShow $lb %x %y]
+    bind $search_frame.entry <KeyRelease> FilterLog
 
     return $name
 }
@@ -279,6 +351,12 @@ proc CreateOptions {name} {
     tooltip::tooltip $chk_update "New versions of Ratio Ghost are released occasionally that may add features or improve stealth.\nChecking this will notify you when an update is available."
     grid x $chk_update - - -padx 4 -pady 4 -sticky w
 
+    if {$::WINDOWS} {
+        set chk_autostart [ttk::checkbutton $connection.chk_autostart -text "Start Ratio Ghost automatically when Windows boots" -variable ::settings(autostart)]
+        tooltip::tooltip $chk_autostart "This will add Ratio Ghost to the Windows startup registry so it starts automatically in the tray when Windows boots."
+        grid x $chk_autostart - - -padx 4 -pady 4 -sticky w
+    }
+
 
 
     grid $warning -sticky ew -pady 10
@@ -320,20 +398,352 @@ proc SetExample {args} {
 }
 
 
+set ::sort_column ""
+set ::sort_direction 0
+
+proc CompareItems {tree col direction a b} {
+    set valA [GetRawValue $a $col]
+    set valB [GetRawValue $b $col]
+
+    set numeric 1
+    if {$col in {tracker last_announce}} {
+        set numeric 0
+    }
+
+    if {$numeric} {
+        if {$valA < $valB} {
+            return [expr {$direction ? 1 : -1}]
+        } elseif {$valA > $valB} {
+            return [expr {$direction ? -1 : 1}]
+        } else {
+            return 0
+        }
+    } else {
+        set cmp [string compare -nocase $valA $valB]
+        return [expr {$direction ? -$cmp : $cmp}]
+    }
+}
+
+proc GetRawValue {hash col} {
+    switch -exact -- $col {
+        tracker {
+            if {[info exists ::hash_tracker($hash)]} {
+                return $::hash_tracker($hash)
+            }
+            return "unknown"
+        }
+        actual_down {
+            if {[info exists ::actual_sum($hash)]} {
+                return [lindex $::actual_sum($hash) 0]
+            }
+            return 0
+        }
+        actual_up {
+            if {[info exists ::actual_sum($hash)]} {
+                return [lindex $::actual_sum($hash) 1]
+            }
+            return 0
+        }
+        reported_down {
+            if {[info exists ::reported_sum($hash)]} {
+                return [lindex $::reported_sum($hash) 0]
+            }
+            return 0
+        }
+        reported_up {
+            if {[info exists ::reported_sum($hash)]} {
+                return [lindex $::reported_sum($hash) 1]
+            }
+            return 0
+        }
+        ratio {
+            if {[info exists ::reported_sum($hash)]} {
+                lassign $::reported_sum($hash) rd ru
+                if {$rd == 0} {
+                    if {$ru == 0} {return 0.0}
+                    return 999999.0
+                }
+                return [expr {1.0 * $ru / $rd}]
+            }
+            return 0.0
+        }
+        seeds {
+            if {[info exists ::response($hash,complete)]} {
+                return $::response($hash,complete)
+            }
+            return 0
+        }
+        leechers {
+            if {[info exists ::response($hash,incomplete)]} {
+                return $::response($hash,incomplete)
+            }
+            return 0
+        }
+        last_announce {
+            if {[info exists ::reported_last_time($hash)]} {
+                return $::reported_last_time($hash)
+            }
+            return 0
+        }
+        default {
+            return ""
+        }
+    }
+}
+
+proc SortTorrentsTab {tree col direction} {
+    set ::sort_column $col
+    set ::sort_direction $direction
+
+    set items [$tree children {}]
+    set sorted_items [lsort -command [list CompareItems $tree $col $direction] $items]
+
+    set idx 0
+    foreach item $sorted_items {
+        $tree move $item {} $idx
+        incr idx
+    }
+
+    foreach c [$tree cget -columns] {
+        set text [$tree heading $c -text]
+        regsub -all { \u25b2| \u25bc} $text {} text
+        if {$c eq $col} {
+            if {$direction == 0} {
+                append text " \u25b2"
+                $tree heading $c -text $text -command [list SortTorrentsTab $tree $c 1]
+            } else {
+                append text " \u25bc"
+                $tree heading $c -text $text -command [list SortTorrentsTab $tree $c 0]
+            }
+        } else {
+            $tree heading $c -text $text -command [list SortTorrentsTab $tree $c 0]
+        }
+    }
+}
+
+# Torrents tab - shows per-torrent statistics
+proc CreateTorrentsTab {name} {
+    ttk::frame $name -padding 10
+
+    set tree [ttk::treeview $name.tree -columns {tracker actual_down actual_up reported_down reported_up ratio seeds leechers last_announce} -show headings \
+        -yscrollcommand [list $name.scroll set]]
+    set scroll [ttk::scrollbar $name.scroll -orient vertical -command [list $tree yview]]
+
+    $tree heading tracker -text "Tracker"
+    $tree heading actual_down -text "Actual Down"
+    $tree heading actual_up -text "Actual Up"
+    $tree heading reported_down -text "Reported Down"
+    $tree heading reported_up -text "Reported Up"
+    $tree heading ratio -text "Ratio"
+    $tree heading seeds -text "Seeds"
+    $tree heading leechers -text "Leechers"
+    $tree heading last_announce -text "Last Announce"
+
+    $tree column tracker -width 150 -minwidth 100
+    $tree column actual_down -width 90 -minwidth 70 -anchor e
+    $tree column actual_up -width 90 -minwidth 70 -anchor e
+    $tree column reported_down -width 90 -minwidth 70 -anchor e
+    $tree column reported_up -width 90 -minwidth 70 -anchor e
+    $tree column ratio -width 70 -minwidth 50 -anchor e
+    $tree column seeds -width 60 -minwidth 40 -anchor center
+    $tree column leechers -width 60 -minwidth 40 -anchor center
+    $tree column last_announce -width 100 -minwidth 80 -anchor center
+
+    grid $tree $scroll -sticky nsew
+    grid columnconfigure $name 0 -weight 1
+    grid rowconfigure $name 0 -weight 1
+
+    ::autoscroll::autoscroll $scroll
+
+    set ::torrent_tree $tree
+
+    # Configure sorting on headings
+    foreach col [$tree cget -columns] {
+        $tree heading $col -command [list SortTorrentsTab $tree $col 0]
+    }
+
+    # Bind right-click context menu
+    bind $tree <ButtonPress-3> [list ShowTorrentContextMenu $tree %x %y %X %Y]
+    if {$::MAC} {
+        bind $tree <ButtonPress-2> [list ShowTorrentContextMenu $tree %x %y %X %Y]
+        bind $tree <Control-ButtonPress-1> [list ShowTorrentContextMenu $tree %x %y %X %Y]
+    }
+
+    # Refresh every 3 seconds
+    after 3000 UpdateTorrentsTab
+
+    return $name
+}
+
+proc ShowTorrentContextMenu {tree x y X Y} {
+    set item [$tree identify row $x $y]
+    if {$item ne ""} {
+        $tree selection set $item
+
+        if {[info commands .torrent_context] eq ""} {
+            menu .torrent_context -tearoff 0
+            .torrent_context add command -label "Copy Info Hash" -command [list CopyTorrentHash $tree]
+            .torrent_context add command -label "Reset Statistics" -command [list ResetTorrentStats $tree]
+        }
+
+        tk_popup .torrent_context $X $Y
+    }
+}
+
+proc CopyTorrentHash {tree} {
+    set sel [$tree selection]
+    if {[llength $sel] == 0} return
+    set hash [lindex $sel 0]
+    clipboard clear
+    clipboard append $hash
+    Event "Copied info hash to clipboard: $hash"
+}
+
+proc ResetTorrentStats {tree} {
+    set sel [$tree selection]
+    if {[llength $sel] == 0} return
+    set hash [lindex $sel 0]
+
+    set r [tk_messageBox -title "Reset Statistics" -message "Are you sure you want to reset all tracked statistics for this torrent?" -type yesno -default no]
+    if {$r eq "yes"} {
+        catch {unset ::actual_first($hash)}
+        catch {unset ::actual_last($hash)}
+        catch {unset ::actual_sum($hash)}
+        catch {unset ::reported_last($hash)}
+        catch {unset ::reported_sum($hash)}
+        catch {unset ::reported_last_time($hash)}
+        catch {unset ::response($hash,complete)}
+        catch {unset ::response($hash,incomplete)}
+        catch {unset ::response($hash,interval)}
+
+        $tree delete $hash
+        Event "Reset stats for torrent hash: [string range $hash 0 7]..."
+        update_status
+    }
+}
+
+proc UpdateTorrentsTab {} {
+    after 3000 UpdateTorrentsTab
+
+    if {![info exists ::torrent_tree]} return
+    set tree $::torrent_tree
+
+    set existing_items {}
+    foreach item [$tree children {}] {
+        lappend existing_items $item
+    }
+
+    set active_hashes [array names ::actual_sum]
+
+    foreach item $existing_items {
+        if {$item ni $active_hashes} {
+            $tree delete $item
+        }
+    }
+
+    foreach hash $active_hashes {
+        lassign $::actual_sum($hash) act_d act_u
+
+        set rep_d 0
+        set rep_u 0
+        if {[info exists ::reported_sum($hash)]} {
+            lassign $::reported_sum($hash) rep_d rep_u
+        }
+
+        set ratio_str "-"
+        if {$rep_d == 0} {
+            if {$rep_u > 0} {
+                set ratio_str "\u221e"
+            } else {
+                set ratio_str "0.00"
+            }
+        } else {
+            set ratio_str [format %.2f [expr {1.0 * $rep_u / $rep_d}]]
+        }
+
+        set seeds 0
+        set leechers 0
+        if {[info exists ::response($hash,complete)]} {
+            set seeds $::response($hash,complete)
+        }
+        if {[info exists ::response($hash,incomplete)]} {
+            set leechers $::response($hash,incomplete)
+        }
+
+        set tracker "unknown"
+        if {[info exists ::hash_tracker($hash)]} {
+            set tracker $::hash_tracker($hash)
+        }
+
+        set last_time "-"
+        if {[info exists ::reported_last_time($hash)]} {
+            set last_time [clock format $::reported_last_time($hash) -format %H:%M:%S]
+        }
+
+        set values [list \
+            $tracker \
+            [FormatData $act_d] \
+            [FormatData $act_u] \
+            [FormatData $rep_d] \
+            [FormatData $rep_u] \
+            $ratio_str \
+            $seeds \
+            $leechers \
+            $last_time]
+
+        if {[$tree exists $hash]} {
+            $tree item $hash -values $values
+        } else {
+            $tree insert {} end -id $hash -values $values
+        }
+    }
+
+    if {[info exists ::sort_column] && $::sort_column ne ""} {
+        SortTorrentsTab $tree $::sort_column $::sort_direction
+    }
+}
+
+
 set EventIndexDel 0
 set EventIndex 0
 
 proc Event {what} {
     global lb
     set ts [clock format [clock seconds] -format %I:%M%P]
-    set what "$ts $what"
 
-    $lb insert end $what
+    # Determine tag based on content
+    set tag "info"
+    if {[string match "*down/up from*" $what]} {
+        set tag "success"
+    } elseif {[string match "*ERROR*" $what] || [string match "*error*" $what] || [string match "*fail*" $what]} {
+        set tag "error"
+    } elseif {[string match "*Blocked*" $what] || [string match "*blocked*" $what]} {
+        set tag "blocked"
+    } elseif {[string match "*Tunnel*" $what] || [string match "*Intercepting*" $what] || [string match "*timeout*" $what]} {
+        set tag "warning"
+    }
+
+    $lb configure -state normal
+    $lb insert end "$ts " timestamp
+    $lb insert end "$what\n" $tag
+    $lb configure -state disabled
+    $lb see end
+
     incr ::EventIndex
 
-    if {[$lb size] > 512} {
+    # Clean up old entries (keep max 512 lines)
+    set max_lines 512
+    if {[expr {int([$lb index end])}] > $max_lines + 1} {
         incr ::EventIndexDel
-        $lb delete 0
+        set del_idx [expr {$::EventIndexDel - 1}]
+        if {[info exists ::log_lookup($del_idx)]} {
+            set del_log $::log_lookup($del_idx)
+            unset -nocomplain ::event_log($del_log)
+            unset -nocomplain ::log_lookup($del_idx)
+        }
+        $lb configure -state normal
+        $lb delete 1.0 2.0
+        $lb configure -state disabled
     }
 
     return [expr {$::EventIndex - 1}]
@@ -345,21 +755,23 @@ proc EventAppend {idx what} {
 
     if {$idx eq ""} {return}
 
-    set idx [expr {$idx - $::EventIndexDel}]
-    if {$idx < 0} return
+    set line_idx [expr {$idx - $::EventIndexDel + 1}]
+    if {$line_idx < 1} return
 
-    set t [$lb get $idx]
-    append t $what
-    $lb delete $idx
-    $lb insert $idx $t
+    $lb configure -state normal
+    # Insert before the newline at the end of the line
+    $lb insert "$line_idx.0 lineend" $what
+    $lb configure -state disabled
+    $lb see end
 }
 
 
 
 proc EventLogShow {window x y} {
 
-    set idx [$window curselection]
-    set idx [expr {$idx + $::EventIndexDel}]
+    set click_idx [$window index @$x,$y]
+    set line_num [lindex [split $click_idx .] 0]
+    set idx [expr {$line_num - 1 + $::EventIndexDel}]
 
     if {![info exists ::log_lookup($idx)]} {
         return
@@ -388,6 +800,35 @@ proc EventLogShow {window x y} {
     focus $t
 }
 
+
+proc FilterLog {} {
+    global lb
+    $lb tag remove highlight 1.0 end
+    set filter $::log_filter
+    if {$filter eq ""} return
+
+    set start 1.0
+    while {1} {
+        set pos [$lb search -nocase -- $filter $start end]
+        if {$pos eq ""} break
+        set line_start "[lindex [split $pos .] 0].0"
+        set line_end "[lindex [split $pos .] 0].end"
+        $lb tag add highlight $line_start $line_end
+        set start "[lindex [split $pos .] 0].end"
+    }
+}
+
+
+proc ExportLog {} {
+    global lb
+    set filename [tk_getSaveFile -title "Export Log" -defaultextension .txt \
+        -filetypes {{"Text Files" .txt} {"All Files" *}}]
+    if {$filename eq ""} return
+    set f [open $filename w]
+    puts -nonewline $f [$lb get 1.0 end]
+    close $f
+    Event "Log exported to $filename"
+}
 
 
 proc show_stats {} {
@@ -435,27 +876,36 @@ proc show_about {} {
     }
 
     set t [toplevel .about]
-    wm title $t "RG About"
+    wm title $t "About Ratio Ghost"
 
     wm resizable $t 0 0
 
     set f [ttk::frame $t.f -padding 20]
     grid $f -sticky nsew
 
-
     set about ""
-
     append about "Ratio Ghost v$::version\n"
     append about "Build $::build\n"
-    append about "Made with love!\n"
+    append about "Copyright (C) 2006-2026\n"
+    append about "Project: https://github.com/Mac-Cipher/RatioGhost\n\n"
 
-    set l [ttk::label $f.about -text $about]
-    grid $l
+    set cert_status "Not Found"
+    if {[info exists ::cert_path] && [file exists $::cert_path] && [file size $::cert_path] > 0} {
+        set cert_status "OK ([FormatData [file size $::cert_path]])"
+    }
+    append about "TLS Intercept Cert: $cert_status"
+
+    set l [ttk::label $f.about -text $about -justify center]
+    grid $l -pady 5
+
+    set link [ttk::label $f.link -text "GitHub Repository" -foreground "#569CD6" -cursor hand2]
+    bind $link <Button-1> {OpenDocument https://github.com/Mac-Cipher/RatioGhost}
+    grid $link -pady 5
 
     focus $t
 }
 
 
 proc show_website {} {
-    OpenDocument http://RatioGhost.com/
+    OpenDocument https://github.com/Mac-Cipher/RatioGhost
 }
