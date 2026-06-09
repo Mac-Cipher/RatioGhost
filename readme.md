@@ -4,6 +4,8 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-green.svg)](license.txt)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#)
 
+Translations: [🇬🇧 English](readme.md) | [🇫🇷 Français](README.fr.md)
+
 Ratio Ghost is a lightweight, local HTTP/HTTPS intercepting proxy designed to automatically modify and improve your BitTorrent ratio reported to private trackers.
 
 Written in Tcl/Tk, it acts as a man-in-the-middle proxy between your BitTorrent client (e.g., uTorrent, qBittorrent) and the tracker, seamlessly adjusting your upload and download statistics on the fly.
@@ -171,3 +173,4 @@ Run the following PowerShell command in the project root:
 ## 📝 License
 
 Distributed under the GNU General Public License v3. See [license.txt](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/license.txt) for more details.
+
