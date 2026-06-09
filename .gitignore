@@ -1,0 +1,11 @@
+# Build artifacts
+ratioghost.exe
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Temporary test files
+rghost.vfs/lib/app-ghost/test_write.txt
+*.log
+*.tmp
