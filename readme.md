@@ -30,7 +30,7 @@ Written in Tcl/Tk, it acts as a man-in-the-middle proxy between your BitTorrent 
 
 ---
 
-## 🛠️ Getting Started
+## 🛠️ Download & Installation
 
 ### 1. Pre-built Executable (Windows)
 To run Ratio Ghost without any installation or compilation:
@@ -173,4 +173,5 @@ Run the following PowerShell command in the project root:
 ## 📝 License
 
 Distributed under the GNU General Public License v3. See [license.txt](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/license.txt) for more details.
+
 

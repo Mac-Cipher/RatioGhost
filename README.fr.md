@@ -30,7 +30,7 @@ Ratio Ghost est un proxy local léger d'interception HTTP/HTTPS conçu pour modi
 
 ---
 
-## 🛠️ Démarrage rapide
+## 🛠️ Téléchargement et Installation
 
 ### 1. Version exécutable (Windows)
 Pour lancer Ratio Ghost sans aucune installation ou compilation :
@@ -173,3 +173,4 @@ Exécutez la commande PowerShell suivante à la racine du projet :
 ## 📝 Licence
 
 Distribué sous la licence GNU General Public License v3. Voir le fichier [license.txt](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/license.txt) pour plus de détails.
+
