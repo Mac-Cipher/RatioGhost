@@ -53,7 +53,7 @@ proc prox {local addr port {https 0}} {
     puts "Accepted connection: $local $addr $port $https"
 
     if {$::settings(only_local)} {
-        if {$addr ne "127.0.0.1"} {
+        if {![string match "127.*" $addr] && $addr ne "::1" && $addr ne "0:0:0:0:0:0:0:1"} {
             Event "Blocked request from $addr:$port."
             cleanup_connection $local
             return
@@ -69,6 +69,7 @@ proc prox {local addr port {https 0}} {
     incr ::rate_limit_count
     if {$::rate_limit_count > 50} {
         dlog "Rate limit exceeded ($::rate_limit_count connections in 1s)"
+        catch {fconfigure $local -blocking 0}
         catch {close $local}
         return
     }
@@ -80,9 +81,11 @@ proc prox {local addr port {https 0}} {
         fconfigure $local -translation binary
         fconfigure $local -buffering none -blocking 0
         dlog "Initializing TLS"
-        tls::import $local -certfile $::cert_path -keyfile $::key_path -server true
+        tls::import $local -certfile $::cert_path -keyfile $::key_path -server true -ssl2 0 -ssl3 0 -tls1 1 -tls1.1 1 -tls1.2 1
+        fconfigure $local -blocking 0
         dlog "Accept $local from $addr port $port (https)"
     } else {
+        fconfigure $local -translation binary -blocking 0 -buffering none
         dlog "Accept $local from $addr port $port"
     }
 
@@ -179,15 +182,18 @@ proc dlog_set {where} {
 }
 
 
-# Centralized connection cleanup — ensures all tracking arrays are cleared
+# Centralized connection cleanup â€” ensures all tracking arrays are cleared
 proc cleanup_connection {local {remote ""}} {
+    catch {fconfigure $local -blocking 0}
     catch {close $local}
     catch {unset ::linfo($local)}
     catch {unset ::lhost($local)}
     catch {unset ::intercept_real_host($local)}
     catch {unset ::first_line_accumulator($local)}
     catch {unset ::extra_data($local)}
+    catch {unset ::real_hostname($local)}
     if {$remote ne ""} {
+        catch {fconfigure $remote -blocking 0}
         catch {close $remote}
         catch {unset ::rinfo($remote)}
         catch {unset ::first($remote)}
@@ -222,7 +228,9 @@ proc read_first {log_num local https} {
                     tls::import $local \
                         -certfile $::cert_path \
                         -keyfile  $::key_path \
-                        -server   true
+                        -server   true \
+                        -ssl2 0 -ssl3 0 -tls1 1 -tls1.1 1 -tls1.2 1
+                    fconfigure $local -blocking 0
                 } err]} {
                     dlog "TLS MITM import failed: $err"
                     set tls_ok 0
@@ -271,7 +279,9 @@ proc read_first {log_num local https} {
                         tls::import $local \
                             -certfile $::cert_path \
                             -keyfile  $::key_path \
-                            -server   true
+                            -server   true \
+                            -ssl2 0 -ssl3 0 -tls1 1 -tls1.1 1 -tls1.2 1
+                        fconfigure $local -blocking 0
                     } err]} {
                         dlog "TLS MITM import failed: $err"
                         set tls_ok 0
@@ -427,6 +437,20 @@ proc process_first_line {log_num local https line} {
         unset ::intercept_real_host($local)
         set url "https://$real_host$url"
         set https 1
+    }
+
+    # Extract the true Host domain name from HTTP headers if available.
+    # This is critical when clients connect to the proxy via IP addresses (like Cloudflare IPs)
+    # so we can use the domain name for SNI, preventing handshake failures.
+    set host_header ""
+    if {[info exists ::extra_data($local)]} {
+        if {[regexp -nocase {Host:\s*([^\r\n]+)} $::extra_data($local) _ hh]} {
+            set host_header [string trim $hh]
+            set host_header [lindex [split $host_header :] 0]
+        }
+    }
+    if {$host_header ne ""} {
+        set ::real_hostname($local) $host_header
     }
 
     # Unified HTTP/HTTPS URL parsing (fixes Bug 1.3 - HTTPS URLs with explicit ports)
@@ -647,6 +671,62 @@ proc socket_timeout {remote local} {
     cleanup_connection $local $remote
 }
 
+proc connect_handler {log_num ei local remote host https} {
+    global rinfo linfo
+
+    # Clear the writable handler so it doesn't fire again
+    fileevent $remote writable ""
+
+    # Check for connection error
+    set err [fconfigure $remote -error]
+    if {$err ne ""} {
+        dlog "Async connection to $host failed: $err"
+        EventAppend $ei " (error: $err)"
+        cleanup_connection $local $remote
+        return
+    }
+
+    # Cancel connection timeout
+    catch {after cancel $::socket_timeout($remote)}
+    catch {unset ::socket_timeout($remote)}
+
+    dlog "Async connection to $host established"
+
+    if {$https} {
+        dlog "Setting to HTTPS on connected socket"
+        set import_opts [list $remote -ssl2 0 -ssl3 0 -tls1 1 -tls1.1 1 -tls1.2 1]
+        # Determine the SNI servername (preferring decrypted Host header domain over raw IP)
+        set sni_host ""
+        if {[info exists ::real_hostname($local)]} {
+            set sni_host $::real_hostname($local)
+        } elseif {![regexp {^[0-9.]+$|^[0-9a-fA-F:]+$} $host]} {
+            set sni_host $host
+        }
+        if {$sni_host ne ""} {
+            dlog "Using SNI servername: $sni_host"
+            lappend import_opts -servername $sni_host
+        }
+        if {[catch {
+            tls::import {*}$import_opts
+        } import_err]} {
+            dlog "TLS import on connected socket failed: $import_err"
+            EventAppend $ei " (TLS error)"
+            cleanup_connection $local $remote
+            return
+        }
+    }
+
+    # Configure encoding, translation and setup event handlers
+    fconfigure $remote -buffering none -blocking 0 -encoding binary -translation binary
+    fileevent $remote readable [list read_remote $log_num $ei $local $remote]
+
+    fconfigure $local -buffering none -blocking 0 -encoding binary -translation binary
+    fileevent $local readable [list read_local $log_num $ei $local $remote]
+
+    # Trigger sending of buffered data (first line and extra headers)
+    read_local $log_num $ei $local $remote
+}
+
 proc route {local host port log_num {https 0}} {
     upvar 1 ei ei
     global rinfo linfo
@@ -655,8 +735,7 @@ proc route {local host port log_num {https 0}} {
     set err {}
     set e [catch {set remote [socket -async $host $port]} err]
     if {$e} {
-        dlog "Couldn't open socket to remote host."
-        dlog $err
+        dlog "Couldn't open socket to remote host: $err"
         EventAppend $ei " (error)"
         cleanup_connection $local
         return ""
@@ -664,19 +743,10 @@ proc route {local host port log_num {https 0}} {
 
     # Set connection timeout (30 seconds)
     set ::socket_timeout($remote) [after 30000 [list socket_timeout $remote $local]]
-
-    if {$https} {
-        dlog "Setting to HTTPS"
-        catch {tls::import $remote -servername $host}
-    }
-
-    fconfigure $remote -buffering none -blocking 0 -encoding binary -translation binary
-    fileevent $remote readable [list read_remote $log_num $ei $local $remote]
-
-    fconfigure $local -buffering none -blocking 0 -encoding binary -translation binary
-    fileevent $local readable [list read_local $log_num $ei $local $remote]
-
     set rinfo($remote) "$host:$port"
+
+    fconfigure $remote -buffering none -blocking 0
+    fileevent $remote writable [list connect_handler $log_num $ei $local $remote $host $https]
 
     return $remote
 }
