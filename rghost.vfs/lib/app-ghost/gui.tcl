@@ -145,17 +145,35 @@ proc CreateTrayIcon {} {
 }
 
 
+proc ShowApp {} {
+    global last_state tray_menu
+    if {!$::WINDOWS} return
+    if {[wm state .] eq "withdrawn"} {
+        $tray_menu entryconfigure 1 -label "Hide Ratio Ghost" -underline 6
+        if {[info exists last_state] && $last_state ne ""} {
+            wm state . $last_state
+        } else {
+            wm state . normal
+        }
+        wm deiconify .
+    }
+    raise .
+    focus -force .
+}
+
+
 proc TrayCallback {msg x y} {
     global tray_menu
     switch -exact -- $msg {
-        WM_RBUTTONDOWN {
-            $tray_menu post $x $y
+        WM_RBUTTONUP {
+            focus -force .
+            tk_popup $tray_menu $x $y
         }
-        WM_LBUTTONDOWN {
-            $tray_menu post $x $y
+        WM_LBUTTONUP {
+            ShowApp
         }
         WM_LBUTTONDBLCLK {
-            Hide
+            ShowApp
         }
     }
 }
@@ -167,8 +185,14 @@ proc Hide {} {
     global last_state tray_menu
     if {[wm state .] eq "withdrawn"} {
         $tray_menu entryconfigure 1 -label "Hide Ratio Ghost" -underline 6
-        wm state . $last_state
+        if {[info exists last_state] && $last_state ne ""} {
+            wm state . $last_state
+        } else {
+            wm state . normal
+        }
         wm deiconify .
+        raise .
+        focus -force .
     } else {
         $tray_menu entryconfigure 1 -label "Show Ratio Ghost" -underline 6
         set last_state [wm state .]
@@ -245,13 +269,42 @@ proc CreateLog {name} {
 
 set example {}
 
+proc bindMouseWheel {w canvas} {
+    bind $w <MouseWheel> "$canvas yview scroll \[expr {-%D/120}\] units"
+    bind $w <Button-4> [list $canvas yview scroll -1 units]
+    bind $w <Button-5> [list $canvas yview scroll 1 units]
+    foreach child [winfo children $w] {
+        bindMouseWheel $child $canvas
+    }
+}
 proc CreateOptions {name} {
-    ttk::frame $name -padding 20
+    ttk::frame $name
 
+    set canvas [canvas $name.canvas -bd 0 -highlightthickness 0 -background [. cget -background]]
+    set sb [ttk::scrollbar $name.sb -orient vertical -command [list $canvas yview]]
+    $canvas configure -yscrollcommand [list $sb set]
 
-    set warning [ttk::label $name.warn -foreground red -anchor center -text "It is highly recommended that you close your torrent client before changing any settings here."]
+    set p [ttk::frame $canvas.f -padding 20]
+    $canvas create window 0 0 -anchor nw -window $p
 
-    set ratio [ttk::labelframe $name.ratio -text "Ratio Options" -padding 12]
+    bind $p <Configure> [list apply [list {c} {
+        $c configure -scrollregion [$c bbox all]
+    }] $canvas]
+
+    bind $canvas <Configure> [list apply [list {c f} {
+        $c itemconfigure 1 -width [winfo width $c]
+    }] $canvas $p]
+
+    grid $canvas -row 0 -column 0 -sticky nsew
+    grid $sb -row 0 -column 1 -sticky ns
+    grid columnconfigure $name 0 -weight 1
+    grid rowconfigure $name 0 -weight 1
+
+    ::autoscroll::autoscroll $sb
+
+    set warning [ttk::label $p.warn -foreground red -anchor center -text "It is highly recommended that you close your torrent client before changing any settings here."]
+
+    set ratio [ttk::labelframe $p.ratio -text "Ratio Options" -padding 12]
 
     set lpeer [ttk::label $ratio.lpeer -text "If torrent has less than " -anchor e]
     set epeer [ttk::entry $ratio.epeer -textvariable ::settings(min_peers) -validate key -validatecommand {ValidatePer %P} -width 7]
@@ -332,7 +385,7 @@ proc CreateOptions {name} {
 
     trace add variable ::settings write SetExample
 
-    set connection [ttk::labelframe $name.connection -text "Connection Options" -padding 12]
+    set connection [ttk::labelframe $p.connection -text "Connection Options" -padding 12]
 
     set l3 [ttk::label $connection.l3 -text "Listen for incoming connections on port" -anchor e]
     set e3 [ttk::entry $connection.e3 -textvariable ::settings(listen_port) -validate key -validatecommand {ValidatePort %P} -width 7]
@@ -347,22 +400,28 @@ proc CreateOptions {name} {
     tooltip::tooltip $chk_local "This will block proxy traffic that isn't coming from your computer.\nLeave this checked for security unless you know what you're doing."
     grid x $chk_local - - -padx 4 -pady 4 -sticky w
 
-    set chk_update [ttk::checkbutton $connection.chk_update -text "Automatically check for software updates" -variable ::settings(update)]
-    tooltip::tooltip $chk_update "New versions of Ratio Ghost are released occasionally that may add features or improve stealth.\nChecking this will notify you when an update is available."
-    grid x $chk_update - - -padx 4 -pady 4 -sticky w
-
     if {$::WINDOWS} {
         set chk_autostart [ttk::checkbutton $connection.chk_autostart -text "Start Ratio Ghost automatically when Windows boots" -variable ::settings(autostart)]
         tooltip::tooltip $chk_autostart "This will add Ratio Ghost to the Windows startup registry so it starts automatically in the tray when Windows boots."
         grid x $chk_autostart - - -padx 4 -pady 4 -sticky w
+
+        set chk_minimized [ttk::checkbutton $connection.chk_minimized -text "Start minimized to system tray (in background)" -variable ::settings(start_minimized)]
+        tooltip::tooltip $chk_minimized "This will start Ratio Ghost in the system tray when launched."
+        grid x $chk_minimized - - -padx 4 -pady 4 -sticky w
     }
+
+    set chk_update [ttk::checkbutton $connection.chk_update -text "Automatically check for software updates" -variable ::settings(update)]
+    tooltip::tooltip $chk_update "New versions of Ratio Ghost are released occasionally that may add features or improve stealth.\nChecking this will notify you when an update is available."
+    grid x $chk_update - - -padx 4 -pady 4 -sticky w
 
 
 
     grid $warning -sticky ew -pady 10
     grid $ratio -sticky ew -pady 10
     grid $connection -sticky ew -pady 10
-    grid columnconfigure $name 0 -weight 1
+    grid columnconfigure $p 0 -weight 1
+
+    bindMouseWheel $p $canvas
 
     return $name
 }

@@ -43,6 +43,13 @@ proc bgerror {message} {
     global ProcessingError
     if {$ProcessingError} return
     set ProcessingError 1
+
+    # Ignore common network/TLS connection errors to prevent log flooding and GUI freezes
+    if {[regexp -nocase {ssl channel|sslv3 alert|handshake failure|connection reset|broken pipe|connection refused} $message]} {
+        set ProcessingError 0
+        return
+    }
+
     set em "Background error: $message\n\n$::errorInfo"
 
     #tk_messageBox -title "Application Error" -message $em
@@ -153,6 +160,7 @@ proc LoadSettings {} {
     lappend defaults only_local 1
     lappend defaults update 1
     lappend defaults autostart 0
+    lappend defaults start_minimized 0
 
     lappend defaults min_peers 5
     lappend defaults upup_ratio_a 4.0
@@ -332,10 +340,8 @@ if {$::WINDOWS} {
 update_status
 
 
-if {$::argc > 0} {
-    if {[lindex $::argv 0] eq "m"} {
-        Hide
-    }
+if {$::settings(start_minimized) || ($::argc > 0 && [lindex $::argv 0] eq "m")} {
+    Hide
 }
 
 
