@@ -1,0 +1,232 @@
+package require tcltest
+namespace import ::tcltest::*
+
+set root [file normalize [file join [file dirname [info script]] ..]]
+set auto_path [linsert $auto_path 0 [file join $root rghost.vfs lib]]
+set ::WINDOWS 1
+set ::LINUX 0
+set ::MAC 0
+source [file join $root rghost.vfs lib app-ghost util.tcl]
+source [file join $root rghost.vfs lib app-ghost proxy.tcl]
+
+test redact-sensitive-1.1 {redacts tracker credentials from logs} -body {
+    redact_sensitive {GET /announce?info_hash=abc%20def&passkey=secret&uploaded=12 HTTP/1.1}
+} -result {GET /announce?info_hash=<redacted>&passkey=<redacted>&uploaded=12 HTTP/1.1}
+
+test redact-sensitive-1.2 {redacts common token names case-insensitively} -body {
+    redact_sensitive {AuthKey=one&TOKEN=two&other=three}
+} -result {AuthKey=<redacted>&TOKEN=<redacted>&other=three}
+
+test redact-sensitive-1.3 {redacts peer identifiers and credential path segments} -body {
+    redact_sensitive {GET /announce/1234567890abcdef1234567890abcdef?peer_id=client&key=secret}
+} -result {GET /announce/<redacted>?peer_id=<redacted>&key=<redacted>}
+
+test summarize-request-target-1.1 {does not log tracker query strings} -body {
+    summarize_request_target {https://tracker.example/announce?passkey=secret&info_hash=abc}
+} -result {https://tracker.example/announce}
+
+test parse-proxy-url-1.1 {parses HTTP and default port} -body {
+    parse_proxy_url {http://tracker.example/announce?x=1} 0
+} -result {tracker.example 80 /announce?x=1 0}
+
+test parse-proxy-url-1.2 {parses HTTPS explicit port} -body {
+    parse_proxy_url {https://tracker.example:8443/announce} 0
+} -result {tracker.example 8443 /announce 1}
+
+test parse-proxy-url-1.3 {parses root URL without explicit path} -body {
+    parse_proxy_url {http://tracker.example} 0
+} -result {tracker.example 80 / 0}
+
+test parse-proxy-url-1.4 {parses bracketed IPv6 URL} -body {
+    parse_proxy_url {https://[2001:db8::1]:8443/announce?x=1} 0
+} -result {2001:db8::1 8443 /announce?x=1 1}
+
+test parse-proxy-url-1.5 {parses query-only URL without slash} -body {
+    parse_proxy_url {http://tracker.example?info_hash=abc&uploaded=1} 0
+} -result {tracker.example 80 /?info_hash=abc&uploaded=1 0}
+
+test parse-proxy-url-1.6 {rejects unsupported schemes and invalid ports} -body {
+    list [parse_proxy_url {ftp://tracker.example/announce} 0] \
+        [parse_proxy_url {http://tracker.example:99999/announce} 0] \
+        [parse_connect_authority {tracker.example:0}]
+} -result {{} {} {}}
+
+test parse-connect-authority-1.1 {parses hostname and port} -body {
+    parse_connect_authority {tracker.example:443}
+} -result {tracker.example 443}
+
+test parse-connect-authority-1.2 {parses bracketed IPv6 and port} -body {
+    parse_connect_authority {[2001:db8::1]:8443}
+} -result {2001:db8::1 8443}
+
+test split-connect-headers-1.1 {discards proxy headers and preserves tunneled bytes} -body {
+    split_connect_headers "Host: tracker.example:443\r\nProxy-Connection: keep-alive\r\n\r\nTLS"
+} -result {1 TLS}
+
+test split-connect-headers-1.2 {waits for complete proxy headers} -body {
+    split_connect_headers "Host: tracker.example:443\r\n"
+} -result {0 {}}
+
+test split-connect-headers-1.3 {accepts an empty header block after CONNECT line was consumed} -body {
+    split_connect_headers "\r\nTLS"
+} -result {1 TLS}
+
+test should-intercept-connect-1.1 {intercepts HTTPS CONNECT only when TLS interception is enabled} -body {
+    set old_exists [info exists ::enable_tls_interception]
+    if {$old_exists} {
+        set old_value $::enable_tls_interception
+    }
+
+    set ::enable_tls_interception 1
+    set enabled_443 [should_intercept_connect 443]
+    set enabled_8443 [should_intercept_connect 8443]
+    set ::enable_tls_interception 0
+    set disabled_443 [should_intercept_connect 443]
+
+    if {$old_exists} {
+        set ::enable_tls_interception $old_value
+    } else {
+        unset ::enable_tls_interception
+    }
+
+    list $enabled_443 $enabled_8443 $disabled_443
+} -result {1 0 0}
+
+test transparent-connect-policy-1.1 {tracker-only mode blocks opaque CONNECT tunnels} -body {
+    set ::settings(only_tracker) 1
+    set ::connection_is_remote(test-local) 0
+    set blocked [transparent_connect_allowed test-local]
+    set ::settings(only_tracker) 0
+    set allowed [transparent_connect_allowed test-local]
+    set ::connection_is_remote(test-local) 1
+    set remote_blocked [transparent_connect_allowed test-local]
+    unset ::connection_is_remote(test-local)
+    list $blocked $allowed $remote_blocked
+} -result {0 1 0}
+
+test format-host-header-1.1 {formats IPv4 and hostname headers} -body {
+    list [format_host_header tracker.example 80] [format_host_header 192.0.2.10 8080]
+} -result {tracker.example 192.0.2.10:8080}
+
+test format-host-header-1.2 {formats IPv6 host header with brackets} -body {
+    format_host_header 2001:db8::1 8443
+} -result {[2001:db8::1]:8443}
+
+test parse-host-header-1.1 {parses host header values with ports and IPv6} -body {
+    list [parse_host_header_value {tracker.example:443}] \
+        [parse_host_header_value {[2001:db8::1]:8443}] \
+        [parse_host_header_value {2001:db8::2}]
+} -result {{tracker.example 443} {2001:db8::1 8443} {2001:db8::2 {}}}
+
+test parse-host-header-1.2 {extracts Host header from HTTP headers} -body {
+    extract_host_header {User-Agent: test
+Host: [2001:db8::1]:443
+Connection: close
+}
+} -result {2001:db8::1 443}
+
+test query-params-1.1 {parses empty duplicate and encoded query values} -body {
+    set params [parse_query_params {/announce?uploaded=1&empty=&info_hash=abc%20def&uploaded=2}]
+    list [query_dict_get_nocase $params uploaded] \
+        [query_dict_get_nocase $params empty] \
+        [query_dict_get_nocase $params INFO_HASH]
+} -result {2 {} abc%20def}
+
+test query-params-1.2 {rewrites and removes query params while preserving fragment} -body {
+    rewrite_query_params {/announce?downloaded=12&event=completed&left=44#frag} \
+        [dict create downloaded 0 left 99] {event}
+} -result {/announce?downloaded=0&left=99#frag}
+
+test rewrite-host-header-1.1 {rewrites loopback Host headers for both proxy ports} -body {
+    set ::settings(listen_port) 3773
+    set ::settings(listen_port_https) 3774
+    rewrite_loopback_host_headers "GET / HTTP/1.1\r\nHost: localhost:3774\r\n\r\n" tracker.example 3773 3774
+} -result "GET / HTTP/1.1\r\nHost: tracker.example\r\n\r\n"
+
+test tracker-response-1.1 {parses tracker fields after fragmented chunks are combined} -body {
+    set first {HTTP/1.1 200 OK\r\n\r\nd8:completei12e10:incom}
+    set second {pletei3e8:intervali1800ee}
+    extract_tracker_response_fields "$first$second"
+} -result {complete 12 incomplete 3 interval 1800}
+
+test tracker-response-1.2 {returns only fields actually present} -body {
+    extract_tracker_response_fields {d8:intervali900ee}
+} -result {interval 900}
+
+test tracker-response-1.3 {parses a bounded failure reason} -body {
+    extract_tracker_response_fields {d14:failure reason9:try lateree}
+} -result {failure_reason {try later}}
+
+test listener-overlap-1.1 {detects cross-overlap between adjacent listener pairs} -body {
+    list [listener_ports_overlap {3773 3774 1} {3774 3775 1}] \
+        [listener_ports_overlap {3773 3774 1} {4773 4774 1}]
+} -result {1 0}
+
+test cleanup-connection-1.1 {clears per-announce lookup state} -body {
+    set ::connection_log(fake-local) 42
+    set ::hash_lookup(42) abc
+    set ::event_log(42) details
+    cleanup_connection fake-local
+    info exists ::hash_lookup(42)
+} -result 0
+
+test proxy-debug-log-path-1.1 {uses APPDATA profile path on Windows fallback} -body {
+    set old_exists [info exists ::env(APPDATA)]
+    if {$old_exists} {
+        set old_appdata $::env(APPDATA)
+    }
+    set ::env(APPDATA) C:/Temp/AppData
+    set path [proxy_debug_log_path]
+    if {$old_exists} {
+        set ::env(APPDATA) $old_appdata
+    } else {
+        unset ::env(APPDATA)
+    }
+    string match */RatioGhost/proxy_debug.log [string map {\\ /} $path]
+} -result 1
+
+test download-reporting-options-1.1 {pretend to seed forces left to zero without no-download mode} -body {
+    set ::settings(no_download) 0
+    set ::settings(seed) 1
+    set fake "/announce?downloaded=123&uploaded=456&left=789&info_hash=abc"
+
+    lassign [apply_download_reporting_options $fake abc started 123 789] rewritten downloaded left
+    list $rewritten $downloaded $left
+} -result {/announce?downloaded=123&uploaded=456&left=789&info_hash=abc 123 0}
+
+test download-reporting-options-1.2 {no-download mode still preserves original left unless seed is enabled} -body {
+    set ::settings(no_download) 1
+    set ::settings(seed) 0
+    set ::actual_first(abc) {50 20 700}
+    set fake "/announce?downloaded=123&uploaded=456&left=789&info_hash=abc"
+
+    lassign [apply_download_reporting_options $fake abc started 123 789] rewritten downloaded left
+    unset ::actual_first(abc)
+    list $rewritten $downloaded $left
+} -result {/announce?downloaded=123&uploaded=456&left=789&info_hash=abc 0 700}
+
+test auto-seed-only-1.1 {detects active downloads from torrent left values} -body {
+    array unset ::actual_last
+    set ::actual_last(a) {10 20 0}
+    set ::actual_last(b) {30 40 128}
+    set with_download [has_active_downloads]
+    set ::actual_last(b) {30 40 0}
+    set all_complete [has_active_downloads]
+    array unset ::actual_last
+    list $with_download $all_complete
+} -result {1 0}
+
+test auto-seed-only-1.2 {enters and leaves seed-only standby from known torrents} -body {
+    array unset ::actual_last
+    set ::auto_seed_only 0
+    set no_torrents [update_auto_seed_only]
+    set ::actual_last(a) {10 20 0}
+    set complete [update_auto_seed_only]
+    set ::actual_last(b) {30 40 42}
+    set downloading [update_auto_seed_only]
+    array unset ::actual_last
+    set ::auto_seed_only 0
+    list $no_torrents $complete $downloading
+} -result {0 1 0}
+
+cleanupTests

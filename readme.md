@@ -2,7 +2,7 @@
 
 [![Tcl/Tk Version](https://img.shields.io/badge/Tcl%2FTk-8.6-blue.svg)](http://tcl.tk/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-green.svg)](license.txt)
-[![Platform: Windows](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#)
+[![Platform: Windows](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)](#)
 
 Translations: [🇬🇧 English](readme.md) | [🇫🇷 Français](README.fr.md)
 
@@ -24,9 +24,9 @@ Written in Tcl/Tk, it acts as a man-in-the-middle proxy between your BitTorrent 
 - **Security & Scope**:
   - Limit connections to localhost (`127.0.0.1`) only to prevent external access.
   - Intercept only tracker traffic (ignores regular HTTP/HTTPS web requests).
-- **Cross-Platform & Portable**:
-  - Runs on Windows, Linux, and macOS.
-  - Can be built into a single, zero-dependency `.exe` binary on Windows.
+- **Windows & Portable**:
+  - Tested and released for Windows.
+  - Builds into a single `.exe` binary with its TLS trust store included.
 
 ---
 
@@ -37,13 +37,18 @@ To run Ratio Ghost without any installation or compilation:
 
 1. Go to the [Releases](https://github.com/Mac-Cipher/RatioGhost/releases) page.
 2. Download the **`ratioghost.exe`** file from the latest version.
-3. Double-click the downloaded file to launch the application.
+3. Download `ratioghost.exe.sha256` and verify the executable before launching it:
+   ```powershell
+   Get-FileHash .\ratioghost.exe -Algorithm SHA256
+   Get-Content .\ratioghost.exe.sha256
+   ```
+4. Double-click the verified executable to launch the application.
 
 > [!NOTE]
-> If Windows Defender or your web browser displays a security warning (SmartScreen), this is because the standalone executable is not digitally signed. You can safely bypass this by clicking **"More info"** and then **"Run anyway"**.
+> If SmartScreen warns about the unsigned executable, run it only after the SHA-256 matches the checksum published with the GitHub release.
 
 ### 2. Running From Source
-To run Ratio Ghost from the source code, you need [Tcl/Tk](http://tcl.tk/) version **8.6** installed.
+The supported source-development environment is Windows with Tcl/Tk 8.6 and the native libraries included in this repository. Linux and macOS are not currently built or tested by CI.
 
 Open a terminal in the project directory and run:
 ```bash
@@ -61,7 +66,7 @@ To route your torrent tracker announces through Ratio Ghost:
    - **HTTPS Port**: `3774`
 2. Open your torrent client settings/preferences.
 3. Go to **Connection** or **Proxy Server** settings.
-4. Set the Proxy type to **HTTP** (or HTTPS).
+4. Set the Proxy type to **HTTP**.
 5. Set Host/Address to `127.0.0.1` and Port to `3773`.
 6. Enable the option: *"Use proxy for hostname lookups"* (or *"Use proxy for peer-to-peer connections"* if your tracker requires it, although Ratio Ghost is designed to intercept tracker requests, not peer connections).
 
@@ -71,7 +76,7 @@ To route your torrent tracker announces through Ratio Ghost:
 3. Scroll down to the **Proxy Server** section:
    - **Type**: Select HTTP.
    - **Host/Address**: Enter 127.0.0.1.
-   - **Port**: Enter 3773 (or 3774 if using HTTPS tracker announces).
+   - **Port**: Always enter `3773`, including for HTTPS trackers (`CONNECT` is intercepted locally so tracker announces can be adjusted).
 4. Ensure the following options are set:
    - **Use proxy for peer connections**: ❌ *Leave unchecked* (Ratio Ghost is not a peer proxy, routing peer data will fail).
    - **Use proxy for torrent transmission**: Check this! (Required to route tracker announces through the proxy).
@@ -92,7 +97,10 @@ To route your torrent tracker announces through Ratio Ghost:
 5. Click **Apply** and **OK**.
 
 > [!IMPORTANT]
-> Ratio Ghost only intercepts **tracker announces**. It does not route or hide your actual peer-to-peer torrent upload/download traffic. Your IP will still be visible to other peers in the swarm.
+> Ratio Ghost modifies HTTP and HTTPS tracker announces. HTTPS is decrypted only on localhost, then re-encrypted to the tracker with CA-chain and hostname validation. It does not route or hide peer-to-peer upload/download traffic, so your IP remains visible to peers in the swarm.
+
+> [!WARNING]
+> Client-facing HTTPS interception still uses a unique self-signed local certificate. It is compatible with the currently tested qBittorrent setup, but clients that enforce tracker hostname matching may reject it. Keep Ratio Ghost bound to localhost. A future TLS-runtime migration should replace this with a local CA and per-host certificates.
 
 ---
 
@@ -141,9 +149,9 @@ If you have modified the source code in `rghost.vfs/` and want to compile a new 
 
 ### Prerequisites
 Make sure the following files are present in the root folder:
-- [tclkit.exe](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/tclkit.exe) (32-bit Tcl/Tk runtime to ensure compatibility with native libraries like `Winico`)
-- [tclkitsh.exe](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/tclkitsh.exe) (32-bit console runtime)
-- [sdx.kit](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/sdx.kit) (Starkit Developer Extension utility)
+- `tclkit.exe` (32-bit Tcl/Tk runtime to ensure compatibility with native libraries like `Winico`)
+- `tclkitsh.exe` (32-bit console runtime)
+- `sdx.kit` (Starkit Developer Extension utility)
 
 ### Compilation Command
 Run the following PowerShell command in the project root:
@@ -151,6 +159,16 @@ Run the following PowerShell command in the project root:
 ```powershell
 .\tclkitsh.exe sdx.kit wrap ratioghost.exe -runtime .\tclkit.exe -vfs rghost.vfs
 ```
+
+### Tests
+
+Run the automated Tcl tests before packaging:
+
+```powershell
+.\tclkitsh.exe tests\all.tcl
+```
+
+Ratio Ghost generates a unique local TLS certificate and private key in the user profile for HTTPS tracker interception. The private key is never shipped in the repository or release executable. Persistent proxy debug logging is disabled by default because tracker URLs can contain private credentials.
 
 > [!TIP]
 > **Why 32-bit?**
@@ -160,18 +178,18 @@ Run the following PowerShell command in the project root:
 
 ## 📂 Project Architecture
 
-- [rghost.vfs/](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs): The Virtual File System containing code and assets.
-  - [rghost.vfs/main.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/main.tcl): Entrypoint script.
-  - [rghost.vfs/lib/app-ghost/ghost.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/ghost.tcl): Startup, configuration manager, and scheduler.
-  - [rghost.vfs/lib/app-ghost/proxy.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/proxy.tcl): Main intercepting HTTP/HTTPS proxy engine.
-  - [rghost.vfs/lib/app-ghost/gui.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/gui.tcl): Tk-based user interface.
-  - [rghost.vfs/lib/app-ghost/util.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/util.tcl): Helper utilities and formatting functions.
-  - [rghost.vfs/lib/app-ghost/update.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/update.tcl): Software update checker.
+- `rghost.vfs/`: The Virtual File System containing code and assets.
+  - `rghost.vfs/main.tcl`: Entrypoint script.
+  - `rghost.vfs/lib/app-ghost/ghost.tcl`: Startup, configuration manager, and scheduler.
+  - `rghost.vfs/lib/app-ghost/proxy.tcl`: Main intercepting HTTP/HTTPS proxy engine.
+  - `rghost.vfs/lib/app-ghost/gui.tcl`: Tk-based user interface.
+  - `rghost.vfs/lib/app-ghost/util.tcl`: Helper utilities and formatting functions.
+  - `rghost.vfs/lib/app-ghost/update.tcl`: Software update checker.
 
 ---
 
 ## 📝 License
 
-Distributed under the GNU General Public License v3. See [license.txt](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/license.txt) for more details.
+Distributed under the GNU General Public License v3. See [`license.txt`](license.txt) for more details.
 
 

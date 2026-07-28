@@ -133,6 +133,7 @@ proc CreateTrayIcon {} {
     if {!$::WINDOWS} return
     global tray_menu icon
 
+    dlog_main "CreateTrayIcon start"
     set icon [winico load TK]
 
     set tray_menu [menu .popup]
@@ -142,11 +143,40 @@ proc CreateTrayIcon {} {
 
     winico taskbar add $icon -pos 0 -callback [list TrayCallback %m %x %y]
     winico taskbar modify $icon -text "Ratio Ghost - Running"
+    dlog_main "CreateTrayIcon done icon=$icon"
+}
+
+proc NormalizeTrayMessage {msg} {
+    switch -exact -- $msg {
+        513 {return WM_LBUTTONDOWN}
+        514 {return WM_LBUTTONUP}
+        515 {return WM_LBUTTONDBLCLK}
+        516 {return WM_RBUTTONDOWN}
+        517 {return WM_RBUTTONUP}
+        default {return $msg}
+    }
+}
+
+proc ShowTrayMenu {x y} {
+    global tray_menu
+    dlog_main "ShowTrayMenu x=$x y=$y"
+    if {![info exists tray_menu] || ![winfo exists $tray_menu]} return
+    catch {$tray_menu unpost}
+    catch {focus -force .}
+    tk_popup $tray_menu $x $y
+}
+
+proc TrayRightClickFallback {x y token} {
+    if {[info exists ::tray_right_click_token] && $::tray_right_click_token eq $token} {
+        unset ::tray_right_click_token
+        ShowTrayMenu $x $y
+    }
 }
 
 
 proc ShowApp {} {
     global last_state tray_menu
+    dlog_main "ShowApp state=[wm state .]"
     if {!$::WINDOWS} return
     if {[wm state .] eq "withdrawn"} {
         $tray_menu entryconfigure 1 -label "Hide Ratio Ghost" -underline 6
@@ -164,17 +194,31 @@ proc ShowApp {} {
 
 proc TrayCallback {msg x y} {
     global tray_menu
-    switch -exact -- $msg {
-        WM_RBUTTONUP {
-            focus -force .
-            tk_popup $tray_menu $x $y
+    dlog_main "TrayCallback raw msg=$msg x=$x y=$y"
+    if {[catch {
+        set msg [NormalizeTrayMessage $msg]
+        dlog_main "TrayCallback normalized msg=$msg"
+        switch -exact -- $msg {
+            WM_RBUTTONDOWN {
+                set ::tray_right_click_token [clock clicks]
+                after 250 [list TrayRightClickFallback $x $y $::tray_right_click_token]
+            }
+            WM_RBUTTONUP {
+                catch {unset ::tray_right_click_token}
+                ShowTrayMenu $x $y
+            }
+            WM_LBUTTONDOWN {
+                ShowApp
+            }
+            WM_LBUTTONUP {
+                ShowApp
+            }
+            WM_LBUTTONDBLCLK {
+                ShowApp
+            }
         }
-        WM_LBUTTONUP {
-            ShowApp
-        }
-        WM_LBUTTONDBLCLK {
-            ShowApp
-        }
+    } err]} {
+        catch {logerror "Tray callback error: $err\n\n$::errorInfo"}
     }
 }
 
@@ -465,7 +509,7 @@ proc CompareItems {tree col direction a b} {
     set valB [GetRawValue $b $col]
 
     set numeric 1
-    if {$col in {tracker last_announce}} {
+    if {$col in {tracker status last_announce}} {
         set numeric 0
     }
 
@@ -538,6 +582,18 @@ proc GetRawValue {hash col} {
             }
             return 0
         }
+        status {
+            if {[info exists ::paused] && $::paused} {
+                return "Paused"
+            }
+            if {[info exists ::auto_seed_only] && $::auto_seed_only} {
+                return "Seed-only standby"
+            }
+            if {[info exists ::response($hash,incomplete)] && $::response($hash,incomplete) < $::settings(min_peers)} {
+                return "Waiting for leechers"
+            }
+            return "Ready"
+        }
         last_announce {
             if {[info exists ::reported_last_time($hash)]} {
                 return $::reported_last_time($hash)
@@ -584,28 +640,20 @@ proc SortTorrentsTab {tree col direction} {
 proc CreateTorrentsTab {name} {
     ttk::frame $name -padding 10
 
-    set tree [ttk::treeview $name.tree -columns {tracker actual_down actual_up reported_down reported_up ratio seeds leechers last_announce} -show headings \
+    set tree [ttk::treeview $name.tree -columns {tracker seeds leechers status last_announce} -show headings \
         -yscrollcommand [list $name.scroll set]]
     set scroll [ttk::scrollbar $name.scroll -orient vertical -command [list $tree yview]]
 
     $tree heading tracker -text "Tracker"
-    $tree heading actual_down -text "Actual Down"
-    $tree heading actual_up -text "Actual Up"
-    $tree heading reported_down -text "Reported Down"
-    $tree heading reported_up -text "Reported Up"
-    $tree heading ratio -text "Ratio"
     $tree heading seeds -text "Seeds"
     $tree heading leechers -text "Leechers"
+    $tree heading status -text "Status"
     $tree heading last_announce -text "Last Announce"
 
-    $tree column tracker -width 150 -minwidth 100
-    $tree column actual_down -width 90 -minwidth 70 -anchor e
-    $tree column actual_up -width 90 -minwidth 70 -anchor e
-    $tree column reported_down -width 90 -minwidth 70 -anchor e
-    $tree column reported_up -width 90 -minwidth 70 -anchor e
-    $tree column ratio -width 70 -minwidth 50 -anchor e
+    $tree column tracker -width 260 -minwidth 120
     $tree column seeds -width 60 -minwidth 40 -anchor center
     $tree column leechers -width 60 -minwidth 40 -anchor center
+    $tree column status -width 150 -minwidth 110 -anchor center
     $tree column last_announce -width 100 -minwidth 80 -anchor center
 
     grid $tree $scroll -sticky nsew
@@ -701,25 +749,6 @@ proc UpdateTorrentsTab {} {
     }
 
     foreach hash $active_hashes {
-        lassign $::actual_sum($hash) act_d act_u
-
-        set rep_d 0
-        set rep_u 0
-        if {[info exists ::reported_sum($hash)]} {
-            lassign $::reported_sum($hash) rep_d rep_u
-        }
-
-        set ratio_str "-"
-        if {$rep_d == 0} {
-            if {$rep_u > 0} {
-                set ratio_str "\u221e"
-            } else {
-                set ratio_str "0.00"
-            }
-        } else {
-            set ratio_str [format %.2f [expr {1.0 * $rep_u / $rep_d}]]
-        }
-
         set seeds 0
         set leechers 0
         if {[info exists ::response($hash,complete)]} {
@@ -727,6 +756,15 @@ proc UpdateTorrentsTab {} {
         }
         if {[info exists ::response($hash,incomplete)]} {
             set leechers $::response($hash,incomplete)
+        }
+
+        set torrent_status "Ready"
+        if {[info exists ::paused] && $::paused} {
+            set torrent_status "Paused"
+        } elseif {[info exists ::auto_seed_only] && $::auto_seed_only} {
+            set torrent_status "Seed-only standby"
+        } elseif {$leechers < $::settings(min_peers)} {
+            set torrent_status "Waiting for leechers"
         }
 
         set tracker "unknown"
@@ -741,13 +779,9 @@ proc UpdateTorrentsTab {} {
 
         set values [list \
             $tracker \
-            [FormatData $act_d] \
-            [FormatData $act_u] \
-            [FormatData $rep_d] \
-            [FormatData $rep_u] \
-            $ratio_str \
             $seeds \
             $leechers \
+            $torrent_status \
             $last_time]
 
         if {[$tree exists $hash]} {
@@ -765,12 +799,10 @@ proc UpdateTorrentsTab {} {
 
 set EventIndexDel 0
 set EventIndex 0
+set EventFlushScheduled 0
+set EventQueue {}
 
-proc Event {what} {
-    global lb
-    set ts [clock format [clock seconds] -format %I:%M%P]
-
-    # Determine tag based on content
+proc EventTag {what} {
     set tag "info"
     if {[string match "*down/up from*" $what]} {
         set tag "success"
@@ -781,14 +813,25 @@ proc Event {what} {
     } elseif {[string match "*Tunnel*" $what] || [string match "*Intercepting*" $what] || [string match "*timeout*" $what]} {
         set tag "warning"
     }
+    return $tag
+}
 
+proc ScheduleEventFlush {} {
+    if {$::EventFlushScheduled} return
+    set ::EventFlushScheduled 1
+    after 100 FlushEvents
+}
+
+proc FlushOneEvent {idx ts what tag} {
+    global lb
     $lb configure -state normal
     $lb insert end "$ts " timestamp
     $lb insert end "$what\n" $tag
+    if {[info exists ::event_append_pending($idx)]} {
+        $lb insert "end - 1 chars" $::event_append_pending($idx)
+        unset ::event_append_pending($idx)
+    }
     $lb configure -state disabled
-    $lb see end
-
-    incr ::EventIndex
 
     # Clean up old entries (keep max 512 lines)
     set max_lines 512
@@ -798,14 +841,52 @@ proc Event {what} {
         if {[info exists ::log_lookup($del_idx)]} {
             set del_log $::log_lookup($del_idx)
             unset -nocomplain ::event_log($del_log)
+            unset -nocomplain ::log_referenced($del_log)
             unset -nocomplain ::log_lookup($del_idx)
         }
+        unset -nocomplain ::event_append_pending($del_idx)
         $lb configure -state normal
         $lb delete 1.0 2.0
         $lb configure -state disabled
     }
 
-    return [expr {$::EventIndex - 1}]
+    return
+}
+
+proc FlushEvents {} {
+    global lb
+    set ::EventFlushScheduled 0
+
+    if {![info exists lb] || ![winfo exists $lb]} {
+        set ::EventQueue {}
+        return
+    }
+
+    set processed 0
+    set max_per_flush 40
+    while {[llength $::EventQueue] > 0 && $processed < $max_per_flush} {
+        set item [lindex $::EventQueue 0]
+        set ::EventQueue [lrange $::EventQueue 1 end]
+        lassign $item idx ts what tag
+        FlushOneEvent $idx $ts $what $tag
+        incr processed
+    }
+
+    catch {$lb see end}
+
+    if {[llength $::EventQueue] > 0} {
+        ScheduleEventFlush
+    }
+}
+
+proc Event {what} {
+    set ts [clock format [clock seconds] -format %I:%M%P]
+    set tag [EventTag $what]
+    set idx $::EventIndex
+    incr ::EventIndex
+    lappend ::EventQueue [list $idx $ts $what $tag]
+    ScheduleEventFlush
+    return $idx
 }
 
 
@@ -813,9 +894,22 @@ proc EventAppend {idx what} {
     global lb
 
     if {$idx eq ""} {return}
+    if {$idx < $::EventIndexDel} {return}
 
     set line_idx [expr {$idx - $::EventIndexDel + 1}]
-    if {$line_idx < 1} return
+    if {$line_idx < 1} {
+        append ::event_append_pending($idx) $what
+        return
+    }
+
+    if {![info exists lb] || ![winfo exists $lb]} {
+        append ::event_append_pending($idx) $what
+        return
+    }
+    if {$line_idx >= [expr {int([$lb index end])}]} {
+        append ::event_append_pending($idx) $what
+        return
+    }
 
     $lb configure -state normal
     # Insert before the newline at the end of the line
@@ -908,14 +1002,14 @@ proc show_stats {} {
     set stats ""
 
     append stats "First use on: [clock format $::settings(first)]\n"
-    append stats "Total runtime: [FormatElapsed [expr {$::settings(runtime) + ([clock seconds] - $::settings(start))}]]\n"
+    append stats "Total runtime: [FormatElapsed [expr {$::settings(runtime) + ([clock seconds] - $::last_save_time)}]]\n"
     append stats "Total sessions: $::settings(sessions)\n"
 
-    append stats "\nActual total download: [FormatData [expr {$::settings(actual_down) + $::actual_down}]]\n"
-    append stats "Actual total upload: [FormatData [expr {$::settings(actual_up) + $::actual_up}]]\n"
+    append stats "\nActual total download: [FormatData [expr {$::settings(actual_down) + $::actual_down - $::saved_counter(actual_down)}]]\n"
+    append stats "Actual total upload: [FormatData [expr {$::settings(actual_up) + $::actual_up - $::saved_counter(actual_up)}]]\n"
 
-    append stats "\nReported total download: [FormatData [expr {$::settings(reported_down) + $::reported_down}]]\n"
-    append stats "Reported total upload: [FormatData [expr {$::settings(reported_up) + $::reported_up}]]\n"
+    append stats "\nReported total download: [FormatData [expr {$::settings(reported_down) + $::reported_down - $::saved_counter(reported_down)}]]\n"
+    append stats "Reported total upload: [FormatData [expr {$::settings(reported_up) + $::reported_up - $::saved_counter(reported_up)}]]\n"
 
 
     set l [ttk::label $f.stats -text $stats]

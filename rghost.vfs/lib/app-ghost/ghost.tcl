@@ -16,7 +16,19 @@
 
 
 set build 522
-set version 0.19
+set version_file [file join $::rg_dir VERSION]
+if {![file isfile $version_file]} {
+    return -code error "Missing application version file: $version_file"
+}
+set version_fd [open $version_file r]
+try {
+    set version [string trim [read $version_fd]]
+} finally {
+    close $version_fd
+}
+if {![regexp {^[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?$} $version]} {
+    return -code error "Invalid application version in $version_file: $version"
+}
 
 
 package provide app-ghost 1.0
@@ -62,14 +74,19 @@ proc bgerror {message} {
 
 puts $::argv
 
-set boot_script [file join [GetProfileDirectory] a.tcl]
-if {[file exists $boot_script]} {
-    source $boot_script
-}
-
 
 set setting_file [file join [GetProfileDirectory] settings.dat]
 
+
+proc GetLaunchCommand {} {
+    set executable [file nativename [info nameofexecutable]]
+    set command "\"$executable\""
+    if {[string match -nocase "tclkit*.exe" [file tail $executable]]} {
+        append command " \"[file nativename [file join $::rg_dir main.tcl]]\""
+    }
+    append command " m"
+    return $command
+}
 
 proc ApplyAutostart {args} {
     if {!$::WINDOWS} return
@@ -79,7 +96,7 @@ proc ApplyAutostart {args} {
     }
     set regPath "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
     if {$::settings(autostart)} {
-        set cmd "\"[file nativename [info nameofexecutable]]\" m"
+        set cmd [GetLaunchCommand]
         if {[catch {registry set $regPath "RatioGhost" $cmd} err]} {
             puts "Error setting registry: $err"
         }
@@ -95,18 +112,15 @@ proc SyncAutostart {} {
     if {!$::WINDOWS} return
     if {[catch {package require registry} err]} return
     set regPath "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-    set exists 0
+    set expected [GetLaunchCommand]
     if {![catch {set val [registry get $regPath "RatioGhost"]}]} {
-        set exists 1
-        set expected "\"[file nativename [info nameofexecutable]]\" m"
-        if {$val ne $expected && $::settings(autostart)} {
+        if {$::settings(autostart)} {
             catch {registry set $regPath "RatioGhost" $expected}
+        } else {
+            set ::settings(autostart) 1
         }
-    }
-    if {$exists && !$::settings(autostart)} {
-        set ::settings(autostart) 1
-    } elseif {!$exists && $::settings(autostart)} {
-        set ::settings(autostart) 0
+    } elseif {$::settings(autostart)} {
+        catch {registry set $regPath "RatioGhost" $expected}
     }
 }
 
@@ -154,10 +168,17 @@ proc LoadSettings {} {
     lappend defaults runtime 0
     lappend defaults sessions 0
 
-    lappend defaults listen_port 3773
-    lappend defaults listen_port_https 3774
+    set default_listen_port 3773
+    if {[info exists ::env(RATIOGHOST_LISTEN_PORT)] &&
+        [string is integer -strict $::env(RATIOGHOST_LISTEN_PORT)] &&
+        $::env(RATIOGHOST_LISTEN_PORT) >= 1 && $::env(RATIOGHOST_LISTEN_PORT) <= 65534} {
+        set default_listen_port $::env(RATIOGHOST_LISTEN_PORT)
+    }
+    lappend defaults listen_port $default_listen_port
+    lappend defaults listen_port_https [expr {$default_listen_port + 1}]
     lappend defaults only_tracker 1
     lappend defaults only_local 1
+    lappend defaults proxy_debug_logging 0
     lappend defaults update 1
     lappend defaults autostart 0
     lappend defaults start_minimized 0
@@ -187,6 +208,11 @@ proc LoadSettings {} {
     }
 
     set ::settings(start) [clock seconds]
+    incr ::settings(sessions)
+    set ::last_save_time $::settings(start)
+    foreach key {actual_down actual_up reported_down reported_up} {
+        set ::saved_counter($key) 0
+    }
 }
 
 
@@ -194,13 +220,12 @@ proc SaveSettings {} {
     global setting_file
 
     array set s [array get ::settings]
-    incr s(sessions)
-    incr s(runtime) [expr {[clock seconds] - $::settings(start)}]
-
-    incr s(actual_down) $::actual_down
-    incr s(actual_up) $::actual_up
-    incr s(reported_down) $::reported_down
-    incr s(reported_up) $::reported_up
+    array set current [list \
+        actual_down $::actual_down actual_up $::actual_up \
+        reported_down $::reported_down reported_up $::reported_up]
+    array set baseline [array get ::saved_counter]
+    set now [clock seconds]
+    AddSessionTotals s current baseline [expr {$now - $::last_save_time}]
 
     set s(geometry) [wm geometry .]
 
@@ -216,6 +241,9 @@ proc SaveSettings {} {
             catch {file copy -force $setting_file $bak_file}
         }
         file rename -force $tmp_file $setting_file
+        array set ::settings [array get s]
+        array set ::saved_counter [array get baseline]
+        set ::last_save_time $now
     } err]} {
         puts "Warning: Could not save settings: $err"
         catch {file delete $tmp_file}
@@ -252,7 +280,8 @@ proc Kill {} {
 
 
 proc update_status {} {
-    after 2000 update_status
+    catch {after cancel $::update_status_after}
+    set ::update_status_after [after 2000 update_status]
 
     global status
     global actual_up actual_down reported_up reported_down
@@ -263,6 +292,8 @@ proc update_status {} {
     set reported_up 0
     set reported_down 0
     set torrents 0
+    set waiting 0
+    set last_announce 0
 
     foreach h [array names ::actual_sum] {
         set act $::actual_sum($h)
@@ -273,6 +304,13 @@ proc update_status {} {
         incr actual_up $u
 
         incr torrents
+
+        if {[info exists ::response($h,incomplete)] && $::response($h,incomplete) < $::settings(min_peers)} {
+            incr waiting
+        }
+        if {[info exists ::reported_last_time($h)] && $::reported_last_time($h) > $last_announce} {
+            set last_announce $::reported_last_time($h)
+        }
     }
 
     foreach h [array names ::reported_sum] {
@@ -284,24 +322,38 @@ proc update_status {} {
         incr reported_up $u
     }
 
+    set auto_seed_only 0
+    if {[info commands update_auto_seed_only] ne ""} {
+        set auto_seed_only [update_auto_seed_only]
+    }
+
     # Skip UI update when window is withdrawn (minimized to tray)
     if {[wm state .] eq "withdrawn"} {return}
 
     set elapsed [expr {[clock seconds] - $::settings(start)}]
     set status "Uptime: [FormatElapsed $elapsed]   |   "
     append status "Torrents: $torrents   |   "
-    append status "Actual: [FormatData $actual_down] down / [FormatData $actual_up] up   |   "
-    append status "Reported: [FormatData $reported_down] down / [FormatData $reported_up] up"
+    if {$last_announce > 0} {
+        append status "Last announce: [clock format $last_announce -format %H:%M:%S]"
+    } else {
+        append status "Last announce: -"
+    }
 
     # Show pause state in status
     if {[info exists ::paused] && $::paused} {
         append status "   |   \u23F8 PAUSED"
+    } elseif {$auto_seed_only} {
+        append status "   |   Mode: seed-only standby"
+    } elseif {$torrents > 0 && $waiting == $torrents} {
+        append status "   |   Mode: waiting for leechers"
+    } else {
+        append status "   |   Mode: active"
     }
 }
 
 
 
-# Extract TLS certificates to user's AppData profile directory so OpenSSL can access them
+# Generate a unique TLS certificate only when local TLS interception is enabled.
 set profile_dir [GetProfileDirectory]
 set target_tls_dir [file join $profile_dir tls]
 if {![file isdirectory $target_tls_dir]} {
@@ -312,20 +364,23 @@ if {![info exists ::rg_dir]} {
     set ::rg_dir [file normalize [file join [file dirname [info script]] .. ..]]
 }
 
-set cert_src [file join $::rg_dir tls server.crt]
-set key_src [file join $::rg_dir tls server.key]
-
 set ::cert_path [file join $target_tls_dir server.crt]
 set ::key_path [file join $target_tls_dir server.key]
+set cert_marker [file join $target_tls_dir unique-certificate-v2]
 
-if {![file exists $::cert_path] || [file size $::cert_path] == 0} {
-    if {[file exists $cert_src]} {
-        catch {file copy -force $cert_src $::cert_path}
-    }
-}
-if {![file exists $::key_path] || [file size $::key_path] == 0} {
-    if {[file exists $key_src]} {
-        catch {file copy -force $key_src $::key_path}
+if {[info exists ::enable_tls_interception] && $::enable_tls_interception} {
+    if {![file exists $cert_marker] ||
+        ![file exists $::cert_path] || [file size $::cert_path] == 0 ||
+        ![file exists $::key_path] || [file size $::key_path] == 0} {
+        catch {file delete -force $::cert_path $::key_path}
+        if {[catch {
+            GenerateTlsCertificate $::cert_path $::key_path
+            close [open $cert_marker w]
+        } cert_err]} {
+            tk_messageBox -icon error -title "Ratio Ghost TLS Error" \
+                -message "Could not generate a unique TLS certificate:\n$cert_err"
+            exit 1
+        }
     }
 }
 
@@ -345,8 +400,23 @@ if {$::settings(start_minimized) || ($::argc > 0 && [lindex $::argv 0] eq "m")} 
 }
 
 
-listen
-trace add variable ::settings(listen_port) write listen
+proc ListenSettingChanged {args} {
+    if {[info exists ::listen_reconfiguring] && $::listen_reconfiguring} {
+        return
+    }
+    if {[catch {listen} listen_err]} {
+        Event $listen_err
+    }
+}
+
+if {[catch {listen} listen_err]} {
+    tk_messageBox -icon warning -title "Ratio Ghost" \
+        -message "$listen_err\n\nRatio Ghost is probably already running. Use the tray icon to show the existing window, or exit the existing copy before starting a new one."
+    Kill
+    exit 0
+}
+trace add variable ::settings(listen_port) write ListenSettingChanged
+trace add variable ::settings(only_local) write ListenSettingChanged
 
 
 

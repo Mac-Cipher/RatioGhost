@@ -1,0 +1,48 @@
+package require tcltest
+namespace import ::tcltest::*
+
+set root [file normalize [file join [file dirname [info script]] ..]]
+set auto_path [linsert $auto_path 0 [file join $root rghost.vfs lib]]
+set ::WINDOWS 1
+set ::LINUX 0
+set ::MAC 0
+set ::build 1
+set version_file [file join $root rghost.vfs VERSION]
+set version_fd [open $version_file r]
+set ::version [string trim [read $version_fd]]
+close $version_fd
+set ::settings(update) 0
+source [file join $root rghost.vfs lib app-ghost util.tcl]
+source [file join $root rghost.vfs lib app-ghost update.tcl]
+
+test update-source-1.1 {loads update checker without starting a network request} -body {
+    list $::check $::skip_update $::checking_update
+} -result {0 0 0}
+
+test update-version-1.1 {uses the packaged semantic version} -body {
+    list $::version [regexp {^[0-9]+(?:\.[0-9]+){2}$} $::version]
+} -result {1.0.0 1}
+
+test tls-hostname-1.1 {matches exact and single-label wildcard certificate names} -body {
+    set exact [dict create subject CN=tracker.example]
+    set wildcard [dict create subject CN=*.github.com]
+    list [TlsHostnameMatches tracker.example $exact] \
+        [TlsHostnameMatches api.github.com $wildcard] \
+        [TlsHostnameMatches nested.api.github.com $wildcard]
+} -result {1 1 0}
+
+test tls-options-1.1 {requires a trusted CA and peer validation} -body {
+    set options [TlsClientOptions api.github.com]
+    list [dict get $options -require] [file isfile [dict get $options -cafile]] \
+        [dict get $options -servername]
+} -result {1 1 api.github.com}
+
+test update-parse-1.1 {extracts latest version from GitHub release JSON} -body {
+    extract_latest_version {{"url":"https://api.github.com","tag_name":"v1.2.3-beta","name":"Release"}}
+} -result {1.2.3-beta}
+
+test update-parse-1.2 {missing tag_name returns empty version} -body {
+    extract_latest_version {{"message":"API rate limit exceeded"}}
+} -result {}
+
+cleanupTests

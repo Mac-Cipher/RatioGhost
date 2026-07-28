@@ -1,5 +1,9 @@
 # Build artifacts
 ratioghost.exe
+ratioghost.exe.sha256
+ratioghost-new.exe
+ratioghost-*.exe
+ratioghost.exe.bak-*
 
 # OS generated files
 .DS_Store
@@ -9,3 +13,8 @@ Thumbs.db
 rghost.vfs/lib/app-ghost/test_write.txt
 *.log
 *.tmp
+*.key
+
+# Local QA and generated trust store
+.codex/qa/
+rghost.vfs/tls/cacert.pem

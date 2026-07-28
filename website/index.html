@@ -4,14 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RatioGhost — Faux upload intelligent & automatique pour BitTorrent</title>
-    <meta name="description" content="RatioGhost est un proxy local léger pour Windows, Linux et macOS. Modifiez intelligemment vos rapports de ratio BitTorrent auprès des trackers privés.">
+    <meta name="description" content="RatioGhost est un proxy local léger pour Windows. Modifiez intelligemment vos rapports de ratio BitTorrent auprès des trackers privés.">
     <!-- Google Fonts: Outfit & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="index.css">
 </head>
-<body class="dark-theme">
+<body id="top" class="dark-theme">
+    <a href="#content" class="skip-link">Aller au contenu principal</a>
 
     <!-- Glowing Background Effects -->
     <div class="glow-orb glow-1"></div>
@@ -20,11 +21,11 @@
     <!-- Header Navigation -->
     <header class="site-header">
         <div class="header-container">
-            <a href="#" class="brand">
+            <a href="#top" class="brand" aria-label="RatioGhost accueil">
                 <span class="ghost-logo-icon">👻</span>
                 <span class="brand-name">RatioGhost</span>
             </a>
-            <nav class="main-nav">
+            <nav class="main-nav" aria-label="Navigation principale">
                 <a href="#features">Fonctionnalités</a>
                 <a href="#how-it-works">Fonctionnement</a>
                 <a href="#setup">Configuration</a>
@@ -33,12 +34,13 @@
         </div>
     </header>
 
+    <main id="content" tabindex="-1">
     <!-- Hero Section -->
-    <section class="hero-section">
+    <section class="hero-section" aria-labelledby="hero-title">
         <div class="hero-container">
             <div class="hero-content">
                 <div class="badge-new">⚡ VERSION 1.0 DISPONIBLE</div>
-                <h1>Dominez les trackers.<br><span class="gradient-text">Silencieusement.</span></h1>
+                <h1 id="hero-title">Dominez les trackers.<br><span class="gradient-text">Silencieusement.</span></h1>
                 <p class="subtitle">
                     Un proxy local ultra-léger et sécurisé qui ajuste vos rapports d'upload BitTorrent. Furtivité absolue, sans configuration réseau complexe.
                 </p>
@@ -53,7 +55,7 @@
                 <div class="app-info-row">
                     <div class="info-item"><span class="glow-check">✓</span> Zéro dépendance</div>
                     <div class="info-item"><span class="glow-check">✓</span> Open Source</div>
-                    <div class="info-item"><span class="glow-check">✓</span> Multi-plateforme</div>
+                    <div class="info-item"><span class="glow-check">✓</span> Conçu pour Windows</div>
                 </div>
             </div>
 
@@ -74,19 +76,19 @@
                         </div>
                     </div>
                     
-                    <div class="app-tabs">
-                        <button class="tab-btn active" id="btn-tab-log" onclick="switchTab('log')">Console</button>
-                        <button class="tab-btn" id="btn-tab-options" onclick="switchTab('options')">Paramètres</button>
-                        <button class="tab-btn" id="btn-tab-torrents" onclick="switchTab('torrents')">Torrents</button>
+                    <div class="app-tabs" role="tablist" aria-label="Aperçu de l'application">
+                        <button class="tab-btn active" id="btn-tab-log" type="button" role="tab" aria-selected="true" aria-controls="tab-log" tabindex="0">Console</button>
+                        <button class="tab-btn" id="btn-tab-options" type="button" role="tab" aria-selected="false" aria-controls="tab-options" tabindex="-1">Paramètres</button>
+                        <button class="tab-btn" id="btn-tab-torrents" type="button" role="tab" aria-selected="false" aria-controls="tab-torrents" tabindex="-1">Torrents</button>
                     </div>
                     <!-- TAB 1: LOG -->
-                    <div class="app-tab-content" id="tab-log">
+                    <div class="app-tab-content" id="tab-log" role="tabpanel" aria-labelledby="btn-tab-log">
                         <div class="search-bar">
                             <label for="log-filter">Filter:</label>
-                            <input type="text" id="log-filter" placeholder="Rechercher dans la console..." onkeyup="filterLogs(this.value)">
-                            <button class="btn-clear" onclick="clearLogFilter()">Clear</button>
+                            <input type="text" id="log-filter" placeholder="Rechercher dans la console..." aria-controls="logs-container">
+                            <button class="btn-clear" id="btn-clear-log" type="button">Clear</button>
                         </div>
-                        <div class="logs-console" id="logs-container">
+                        <div class="logs-console" id="logs-container" role="log" aria-live="off" aria-label="Aperçu des événements proxy">
                             <div class="log-line text-muted">[13:21:40] INIT: RatioGhost interceptor online</div>
                             <div class="log-line text-info">[13:21:40] LISTEN: Proxy server active on port 3773</div>
                             <div class="log-line text-info">[13:21:45] SYSTEM: Awaiting BitTorrent announce signals...</div>
@@ -96,7 +98,7 @@
                     </div>
 
                     <!-- TAB 2: OPTIONS -->
-                    <div class="app-tab-content hidden" id="tab-options">
+                    <div class="app-tab-content hidden" id="tab-options" role="tabpanel" aria-labelledby="btn-tab-options" hidden>
                         <div class="settings-form">
                             <div class="warning-text">
                                 ⚠ Close client torrent before updating options.
@@ -105,7 +107,7 @@
                             <fieldset class="settings-group">
                                 <legend>Ratio Spoof Options</legend>
                                 <div class="settings-row flex-row">
-                                    <span>If peers &lt;</span>
+                                    <label for="opt-min-peers">If peers &lt;</label>
                                     <input type="number" id="opt-min-peers" value="5" class="num-input">
                                     <span>report actual stats.</span>
                                 </div>
@@ -113,28 +115,28 @@
                                     <span>Otherwise, multiply upload by:</span>
                                 </div>
                                 <div class="settings-row flex-row indent">
-                                    <span>Factor between</span>
+                                    <label for="opt-down-a">Factor minimum</label>
                                     <input type="number" id="opt-down-a" value="4.0" step="0.5" class="num-input">
-                                    <span>and</span>
+                                    <label for="opt-down-b">maximum</label>
                                     <input type="number" id="opt-down-b" value="8.0" step="0.5" class="num-input">
                                 </div>
                                 <div class="settings-row flex-row indent">
-                                    <span>Add boost up to</span>
+                                    <label for="opt-boost">Boost up to</label>
                                     <input type="number" id="opt-boost" value="15" class="num-input">
-                                    <span>KB/s with</span>
+                                    <label for="opt-boost-chance">KB/s, chance</label>
                                     <input type="number" id="opt-boost-chance" value="10" class="num-input">
                                     <span>% chance.</span>
                                 </div>
                                 <div class="settings-row spacer-top">
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked id="opt-no-download" onchange="toggleOption('no-download')">
+                                        <input type="checkbox" checked id="opt-no-download">
                                         <span class="checkbox-custom"></span>
                                         <span>Force download to zero (FreeLeech)</span>
                                     </label>
                                 </div>
                                 <div class="settings-row">
                                     <label class="checkbox-label">
-                                        <input type="checkbox" id="opt-seed" onchange="toggleSeedOption(this.checked)">
+                                        <input type="checkbox" id="opt-seed">
                                         <span class="checkbox-custom"></span>
                                         <span>Pretend to seed immediately</span>
                                     </label>
@@ -144,7 +146,7 @@
                             <fieldset class="settings-group">
                                 <legend>Network Connections</legend>
                                 <div class="settings-row flex-row">
-                                    <span>Proxy Port:</span>
+                                    <label for="opt-port">Proxy Port:</label>
                                     <input type="number" id="opt-port" value="3773" class="num-input">
                                 </div>
                                 <div class="settings-row">
@@ -166,17 +168,18 @@
                     </div>
 
                     <!-- TAB 3: TORRENTS -->
-                    <div class="app-tab-content hidden" id="tab-torrents">
+                    <div class="app-tab-content hidden" id="tab-torrents" role="tabpanel" aria-labelledby="btn-tab-torrents" hidden>
                         <div class="torrents-tab">
                             <table class="torrents-table">
+                                <caption class="visually-hidden">Statistiques réelles et rapportées par tracker</caption>
                                 <thead>
                                     <tr>
-                                        <th>Tracker</th>
-                                        <th>Actual Down</th>
-                                        <th>Actual Up</th>
-                                        <th>Reported Down</th>
-                                        <th>Reported Up</th>
-                                        <th>Ratio</th>
+                                        <th scope="col">Tracker</th>
+                                        <th scope="col">Actual Down</th>
+                                        <th scope="col">Actual Up</th>
+                                        <th scope="col">Reported Down</th>
+                                        <th scope="col">Reported Up</th>
+                                        <th scope="col">Ratio</th>
                                     </tr>
                                 </thead>
                                 <tbody id="torrents-list">
@@ -207,17 +210,17 @@
                             <span class="status-indicator-glow-dot" id="status-dot">●</span>
                             <span class="status-text" id="status-message">Proxy active - modifying ratio on the fly</span>
                         </div>
-                        <button class="btn-pause-glass" id="btn-pause-toggle" onclick="togglePause()">Pause</button>
+                        <button class="btn-pause-glass" id="btn-pause-toggle" type="button" aria-pressed="false">Pause</button>
                     </div>
                 </div>
             </div>
         </div>
     </section>
     <!-- Key Features Section -->
-    <section class="features-section" id="features">
+    <section class="features-section" id="features" aria-labelledby="features-title">
         <div class="section-container">
             <div class="section-header">
-                <h2>Furtif. Intelligent. Autonome.</h2>
+                <h2 id="features-title">Furtif. Intelligent. Autonome.</h2>
                 <p>RatioGhost fonctionne de manière transparente en tâche de fond pour ajuster vos rapports de données.</p>
             </div>
             
@@ -247,16 +250,18 @@
     </section>
 
     <!-- How It Works Section with animated SVG flow -->
-    <section class="how-it-works-section" id="how-it-works">
+    <section class="how-it-works-section" id="how-it-works" aria-labelledby="how-title">
         <div class="section-container">
             <div class="section-header">
-                <h2>Comment ça fonctionne ?</h2>
+                <h2 id="how-title">Comment ça fonctionne ?</h2>
                 <p>Découvrez comment RatioGhost s'insère discrètement entre votre client torrent et le tracker.</p>
             </div>
 
             <!-- Animated SVG Flow Diagram -->
             <div class="svg-flow-container">
-                <svg viewBox="0 0 800 200" class="flow-svg">
+                <svg viewBox="0 0 800 200" class="flow-svg" role="img" aria-labelledby="flow-title flow-desc">
+                    <title id="flow-title">Flux entre le client torrent, RatioGhost et le tracker</title>
+                    <desc id="flow-desc">Le client envoie une annonce à RatioGhost, qui ajuste les statistiques avant de transmettre la requête au tracker privé.</desc>
                     <defs>
                         <!-- Glow filters -->
                         <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -289,38 +294,39 @@
                     <path d="M 470 100 L 620 100" class="flow-line line-2" />
                 </svg>
             </div>
+            <p class="flow-scroll-hint">Sur mobile, faites défiler le schéma horizontalement pour le lire en taille confortable.</p>
             
             <div class="flow-labels">
                 <div class="flow-label-item">
-                    <h5>1. Requête Announce</h5>
+                    <h3>1. Requête Announce</h3>
                     <p>Le client envoie ses statistiques réelles : Upload 10MB, Download 5MB.</p>
                 </div>
                 <div class="flow-label-item highlight-label">
-                    <h5>2. Interception & Altération</h5>
+                    <h3>2. Interception & Altération</h3>
                     <p>RatioGhost capte le paquet et injecte les statistiques modifiées : Upload 50MB, Download 0MB.</p>
                 </div>
                 <div class="flow-label-item">
-                    <h5>3. Validation Tracker</h5>
+                    <h3>3. Validation Tracker</h3>
                     <p>Le tracker privé enregistre les fausses statistiques, augmentant instantanément votre ratio de partage.</p>
                 </div>
             </div>
         </div>
     </section>
     <!-- Setup Guide Section -->
-    <section class="setup-section" id="setup">
+    <section class="setup-section" id="setup" aria-labelledby="setup-title">
         <div class="section-container">
             <div class="section-header">
-                <h2>Configuration Simple & Rapide</h2>
+                <h2 id="setup-title">Configuration Simple & Rapide</h2>
                 <p>Suivez ces quelques étapes pour rediriger les annonces de votre client torrent favori.</p>
             </div>
 
             <div class="setup-tabs-wrapper">
-                <div class="setup-nav">
-                    <button class="setup-tab-btn active" onclick="switchSetupTab('qbittorrent')">qBittorrent</button>
-                    <button class="setup-tab-btn" onclick="switchSetupTab('utorrent')">uTorrent / BitTorrent</button>
+                <div class="setup-nav" role="tablist" aria-label="Guides de configuration par client torrent">
+                    <button class="setup-tab-btn active" id="btn-setup-qbittorrent" type="button" role="tab" aria-selected="true" aria-controls="setup-qbittorrent" tabindex="0">qBittorrent</button>
+                    <button class="setup-tab-btn" id="btn-setup-utorrent" type="button" role="tab" aria-selected="false" aria-controls="setup-utorrent" tabindex="-1">uTorrent / BitTorrent</button>
                 </div>
 
-                <div class="setup-tab-pane" id="setup-qbittorrent">
+                <div class="setup-tab-pane" id="setup-qbittorrent" role="tabpanel" aria-labelledby="btn-setup-qbittorrent">
                     <ol class="setup-steps">
                         <li>Lancez <strong>RatioGhost</strong> en tâche de fond.</li>
                         <li>Allez dans <strong>Outils</strong> ➔ <strong>Options</strong> (ou appuyez sur <kbd>Alt + O</kbd>).</li>
@@ -342,7 +348,7 @@
                     </ol>
                 </div>
 
-                <div class="setup-tab-pane hidden" id="setup-utorrent">
+                <div class="setup-tab-pane hidden" id="setup-utorrent" role="tabpanel" aria-labelledby="btn-setup-utorrent" hidden>
                     <ol class="setup-steps">
                         <li>Lancez <strong>RatioGhost</strong> en tâche de fond.</li>
                         <li>Allez dans <strong>Options</strong> ➔ <strong>Préférences</strong> (ou appuyez sur <kbd>Ctrl + P</kbd>).</li>
@@ -368,23 +374,23 @@
     </section>
 
     <!-- Download / Call to Action Section -->
-    <section class="download-section" id="download">
+    <section class="download-section" id="download" aria-labelledby="download-title">
         <div class="section-container">
             <div class="download-card glow-card">
-                <h2>Prêt à optimiser votre partage ?</h2>
+                <h2 id="download-title">Prêt à optimiser votre partage ?</h2>
                 <p>RatioGhost est entièrement gratuit, open-source et ne nécessite aucune inscription.</p>
                 
                 <div class="download-buttons-group">
-                    <a href="https://github.com/Mac-Cipher/RatioGhost/releases/download/v1.0.0/ratioghost.exe" class="btn btn-primary btn-large btn-glow">
+                    <a href="https://github.com/Mac-Cipher/RatioGhost/releases/latest/download/ratioghost.exe" class="btn btn-primary btn-large btn-glow">
                         <span class="btn-icon">💾</span> Télécharger pour Windows (.exe)
                     </a>
                 </div>
-                <div class="download-platforms-info">
-                    <span>Aussi compatible avec : <strong>macOS</strong> et <strong>Linux</strong> via exécution des sources.</span>
-                </div>
+                <div class="download-platforms-info"><span>Version officiellement testée : <strong>Windows</strong>.</span></div>
             </div>
         </div>
     </section>
+
+    </main>
 
     <!-- Footer -->
     <footer class="site-footer">
@@ -415,27 +421,53 @@
             const tabButtons = document.querySelectorAll('.app-tabs .tab-btn');
             const contents = document.querySelectorAll('.app-mockup .app-tab-content');
             
-            tabButtons.forEach(btn => btn.classList.remove('active'));
-            contents.forEach(content => content.classList.add('hidden'));
-
-            document.getElementById(`btn-tab-${tabId}`).classList.add('active');
-            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            tabButtons.forEach(btn => {
+                const isActive = btn.id === `btn-tab-${tabId}`;
+                btn.classList.toggle('active', isActive);
+                btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                btn.tabIndex = isActive ? 0 : -1;
+            });
+            contents.forEach(content => {
+                const isActive = content.id === `tab-${tabId}`;
+                content.classList.toggle('hidden', !isActive);
+                content.hidden = !isActive;
+            });
         }
 
         function switchSetupTab(tabId) {
             const tabs = document.querySelectorAll('.setup-nav .setup-tab-btn');
             const contents = document.querySelectorAll('.setup-tab-pane');
             
-            tabs.forEach(tab => tab.classList.remove('active'));
-            contents.forEach(content => content.classList.add('hidden'));
+            tabs.forEach(tab => {
+                const isActive = tab.getAttribute('aria-controls') === `setup-${tabId}`;
+                tab.classList.toggle('active', isActive);
+                tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                tab.tabIndex = isActive ? 0 : -1;
+            });
+            contents.forEach(content => {
+                const isActive = content.id === `setup-${tabId}`;
+                content.classList.toggle('hidden', !isActive);
+                content.hidden = !isActive;
+            });
+        }
 
-            if (tabId === 'qbittorrent') {
-                document.querySelector('.setup-nav .setup-tab-btn:nth-child(1)').classList.add('active');
-                document.getElementById('setup-qbittorrent').classList.remove('hidden');
-            } else {
-                document.querySelector('.setup-nav .setup-tab-btn:nth-child(2)').classList.add('active');
-                document.getElementById('setup-utorrent').classList.remove('hidden');
-            }
+        function bindTablist(selector, activate) {
+            const tablist = document.querySelector(selector);
+            const tabs = [...tablist.querySelectorAll('[role="tab"]')];
+            tabs.forEach((tab, index) => {
+                tab.addEventListener('click', () => activate(tab));
+                tab.addEventListener('keydown', event => {
+                    let nextIndex = null;
+                    if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+                    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+                    if (event.key === 'Home') nextIndex = 0;
+                    if (event.key === 'End') nextIndex = tabs.length - 1;
+                    if (nextIndex === null) return;
+                    event.preventDefault();
+                    tabs[nextIndex].focus();
+                    activate(tabs[nextIndex]);
+                });
+            });
         }
 
         function toggleSeedOption(isSeedChecked) {
@@ -463,6 +495,7 @@
                 dot.style.textShadow = '0 0 8px #ef4444';
                 msg.innerText = 'Proxy paused - passing through actual stats';
                 toggleBtn.innerText = 'Resume';
+                toggleBtn.setAttribute('aria-pressed', 'true');
                 
                 addLogLine(`${timeStr} Proxy paused - passing through actual stats`, 'warning');
             } else {
@@ -470,6 +503,7 @@
                 dot.style.textShadow = '0 0 8px #34d399';
                 msg.innerText = 'Proxy active - modifying ratio on the fly';
                 toggleBtn.innerText = 'Pause';
+                toggleBtn.setAttribute('aria-pressed', 'false');
                 
                 addLogLine(`${timeStr} Proxy resumed - modifying ratio active`, 'info');
             }
@@ -484,7 +518,7 @@
             if (type === 'info') line.classList.add('text-info');
             if (type === 'muted') line.classList.add('text-muted');
             
-            line.innerHTML = text;
+            line.textContent = text;
             logsContainer.appendChild(line);
 
             while (logsContainer.children.length > 25) {
@@ -511,6 +545,13 @@
             filterLogs('');
         }
 
+        bindTablist('.app-tabs', tab => switchTab(tab.id.replace('btn-tab-', '')));
+        bindTablist('.setup-nav', tab => switchSetupTab(tab.getAttribute('aria-controls').replace('setup-', '')));
+        document.getElementById('log-filter').addEventListener('input', event => filterLogs(event.target.value));
+        document.getElementById('btn-clear-log').addEventListener('click', clearLogFilter);
+        document.getElementById('opt-seed').addEventListener('change', event => toggleSeedOption(event.target.checked));
+        document.getElementById('btn-pause-toggle').addEventListener('click', togglePause);
+
         const torrentsList = ['ubuntu-26.04.iso', 'debian-13-netinst.iso', 'archlinux-latest.iso', 'fedora-workstation.iso'];
         
         setInterval(() => {
@@ -530,7 +571,7 @@
 
             const spoofedUpload = (Math.random() * 8 + 1).toFixed(1);
             const spoofedDownload = isNoDownload ? '0 MB' : (Math.random() * 2).toFixed(1) + ' MB';
-            addLogLine(`&nbsp;&nbsp;&nbsp;&nbsp;-> Spoofed stats: Upload: +${spoofedUpload} MB (Multiplier ${currentMultiplier}x) | Download: ${spoofedDownload}`, 'success');
+            addLogLine(`    -> Spoofed stats: Upload: +${spoofedUpload} MB (Multiplier ${currentMultiplier}x) | Download: ${spoofedDownload}`, 'success');
 
             const ubuntuAddDown = Math.random() * 2;
             const ubuntuAddUp = Math.random() * 0.2;
@@ -560,20 +601,6 @@
 
         }, 4000);
 
-        if (!CSS.supports('(animation-timeline: view()) and (animation-range: entry)')) {
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('visible');
-                    }
-                });
-            }, { threshold: 0.1 });
-
-            document.querySelectorAll('.feature-card, .flow-step, .setup-steps li').forEach(el => {
-                el.classList.add('scroll-reveal');
-                observer.observe(el);
-            });
-        }
     </script>
 </body>
 </html>

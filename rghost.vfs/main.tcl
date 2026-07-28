@@ -14,16 +14,26 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+proc startup_log_path {} {
+    if {[info exists ::env(APPDATA)]} {
+        set dir [file join $::env(APPDATA) RatioGhost]
+    } else {
+        set dir [pwd]
+    }
+    catch {file mkdir $dir}
+    return [file join $dir debug_app_err.txt]
+}
+
 # Initialize debug log
 catch {
-    set fd [open "C:/Users/LUCAS/AppData/Roaming/RatioGhost/debug_app_err.txt" w]
+    set fd [open [startup_log_path] w]
     puts $fd "main.tcl started"
     close $fd
 }
 
 proc dlog_main {msg} {
     catch {
-        set fd [open "C:/Users/LUCAS/AppData/Roaming/RatioGhost/debug_app_err.txt" a]
+        set fd [open [startup_log_path] a]
         puts $fd $msg
         close $fd
     }
@@ -59,29 +69,34 @@ if {$::WINDOWS} {
     }
 
     set topicName RatioGhost2015
-    dlog_main "Checking DDE services..."
+    set allow_multiple [expr {[info exists ::env(RATIOGHOST_ALLOW_MULTIPLE)] && $::env(RATIOGHOST_ALLOW_MULTIPLE) eq "1"}]
+    if {!$allow_multiple} {
+        dlog_main "Checking DDE services..."
 
-    if {[catch {
-        set otherServices [dde services TclEval $topicName]
-        dlog_main "Other services found: [llength $otherServices]"
-        if {[llength $otherServices] > 0} {
-            dlog_main "Bringing other service to front and exiting..."
-            dde execute TclEval $topicName {
-                wm deiconify .
-                raise .
-                bell
+        if {[catch {
+            set otherServices [dde services TclEval $topicName]
+            dlog_main "Other services found: [llength $otherServices]"
+            if {[llength $otherServices] > 0} {
+                dlog_main "Bringing other service to front and exiting..."
+                dde execute TclEval $topicName {
+                    wm deiconify .
+                    raise .
+                    bell
+                }
+                exit
             }
-            exit
+        } err]} {
+            dlog_main "DDE check failed: $err"
         }
-    } err]} {
-        dlog_main "DDE check failed: $err"
-    }
 
-    if {[catch {
-        dde servername $topicName
-        dlog_main "Registered DDE servername $topicName"
-    } err]} {
-        dlog_main "DDE servername registration failed: $err"
+        if {[catch {
+            dde servername $topicName
+            dlog_main "Registered DDE servername $topicName"
+        } err]} {
+            dlog_main "DDE servername registration failed: $err"
+        }
+    } else {
+        dlog_main "Skipping DDE singleton check for isolated smoke test."
     }
 
     if {![info exists env(APPDATA)]} {
@@ -97,4 +112,5 @@ if {[catch {
 } err]} {
     dlog_main "ERROR loading package app-ghost: $err"
     dlog_main "errorInfo:\n$::errorInfo"
+    exit 1
 }

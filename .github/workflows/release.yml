@@ -1,31 +1,142 @@
 ﻿name: Build and Release
 
 on:
+  pull_request:
   push:
+    branches:
+      - master
     tags:
       - 'v*'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     name: Build & Release Executable
     runs-on: windows-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+
+      - name: Verify Release Version
+        shell: pwsh
+        run: |
+          $version = (Get-Content .\rghost.vfs\VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Invalid semantic version: $version"
+          }
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $tagVersion = $env:GITHUB_REF.Substring('refs/tags/v'.Length)
+            if ($tagVersion -ne $version) {
+              throw "Tag v$tagVersion does not match rghost.vfs/VERSION ($version)."
+            }
+          }
+
+      - name: Bundle Trusted Certificate Authorities
+        shell: pwsh
+        run: |
+          $candidates = @(
+            'C:\Program Files\Git\mingw64\etc\ssl\certs\ca-bundle.crt',
+            'C:\Program Files\Git\usr\ssl\certs\ca-bundle.crt'
+          )
+          $caBundle = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$caBundle) {
+            throw 'The Git for Windows CA bundle was not found.'
+          }
+          Copy-Item $caBundle .\rghost.vfs\tls\cacert.pem
+
+      - name: Run Tests
+        shell: pwsh
+        run: |
+          .\tclkitsh.exe tests\all.tcl
 
       - name: Build Standalone EXE
         shell: pwsh
         run: |
           .\tclkitsh.exe sdx.kit wrap ratioghost.exe -runtime .\tclkit.exe -vfs rghost.vfs
 
+      - name: Smoke Standalone EXE
+        shell: pwsh
+        run: |
+          $env:APPDATA = Join-Path $pwd 'ci-appdata'
+          New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null
+          $process = Start-Process -FilePath .\ratioghost.exe -ArgumentList 'm' -PassThru
+          try {
+            $listening = $false
+            foreach ($attempt in 1..30) {
+              Start-Sleep -Milliseconds 500
+              $ports = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+                Where-Object { $_.OwningProcess -eq $process.Id -and ($_.LocalPort -eq 3773 -or $_.LocalPort -eq 3774) }
+              $openPorts = @($ports | Select-Object -ExpandProperty LocalPort -Unique)
+              if ($openPorts.Count -ge 2) {
+                $listening = $true
+                break
+              }
+              if ($process.HasExited) {
+                throw "RatioGhost exited during smoke test with code $($process.ExitCode)."
+              }
+            }
+            if (!$listening) {
+              throw "RatioGhost did not open expected ports 3773 and 3774."
+            }
+            $version = (Get-Content .\rghost.vfs\VERSION -Raw).Trim()
+            if ($version -eq '0.19') {
+              throw 'The obsolete application version is still packaged.'
+            }
+            $bgerror = Join-Path $env:APPDATA 'RatioGhost\bgerror.txt'
+            if ((Test-Path $bgerror) -and (Get-Item $bgerror).Length -gt 0) {
+              Get-Content $bgerror
+              throw "RatioGhost wrote bgerror.txt during smoke test."
+            }
+          } finally {
+            if (!$process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
+
+      - name: Verify Build and Create Checksum
+        shell: pwsh
+        run: |
+          if (!(Test-Path .\ratioghost.exe) -or (Get-Item .\ratioghost.exe).Length -lt 1000000) {
+            throw "Standalone executable was not built correctly."
+          }
+          (Get-FileHash .\ratioghost.exe -Algorithm SHA256).Hash.ToLower() + "  ratioghost.exe" |
+            Set-Content -Encoding ascii .\ratioghost.exe.sha256
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ratioghost-windows
+          path: |
+            ratioghost.exe
+            ratioghost.exe.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    runs-on: windows-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ratioghost-windows
+          path: .
+
       - name: Release and Upload Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: ratioghost.exe
+          files: |
+            ratioghost.exe
+            ratioghost.exe.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

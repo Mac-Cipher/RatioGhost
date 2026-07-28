@@ -2,7 +2,7 @@
 
 [![Tcl/Tk Version](https://img.shields.io/badge/Tcl%2FTk-8.6-blue.svg)](http://tcl.tk/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-green.svg)](license.txt)
-[![Platform: Windows](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#)
+[![Platform: Windows](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)](#)
 
 Traductions : [🇬🇧 English](readme.md) | [🇫🇷 Français](README.fr.md)
 
@@ -24,9 +24,9 @@ Ratio Ghost est un proxy local léger d'interception HTTP/HTTPS conçu pour modi
 - **Sécurité et portée** :
   - Limite les connexions à localhost (`127.0.0.1`) uniquement pour empêcher les accès externes.
   - Intercepte uniquement le trafic vers les trackers (ignore les requêtes web HTTP/HTTPS classiques).
-- **Multiplateforme et portable** :
-  - Fonctionne sous Windows, Linux et macOS.
-  - Peut être compilé sous forme d'exécutable `.exe` unique et autonome sous Windows (sans dépendance).
+- **Windows et portable** :
+  - Testé et distribué pour Windows.
+  - Produit un exécutable `.exe` unique avec son magasin d'autorités TLS inclus.
 
 ---
 
@@ -37,13 +37,18 @@ Pour lancer Ratio Ghost sans aucune installation ou compilation :
 
 1. Allez sur la page des [Releases](https://github.com/Mac-Cipher/RatioGhost/releases).
 2. Téléchargez le fichier **`ratioghost.exe`** de la dernière version.
-3. Double-cliquez sur le fichier téléchargé pour lancer l'application.
+3. Téléchargez `ratioghost.exe.sha256` et vérifiez l'exécutable avant de le lancer :
+   ```powershell
+   Get-FileHash .\ratioghost.exe -Algorithm SHA256
+   Get-Content .\ratioghost.exe.sha256
+   ```
+4. Double-cliquez sur l'exécutable vérifié pour lancer l'application.
 
 > [!NOTE]
-> Si Windows Defender ou votre navigateur affiche un avertissement de sécurité (SmartScreen), c'est parce que l'exécutable autonome n'est pas signé numériquement. Vous pouvez cliquer sans crainte sur **"Informations complémentaires"** puis sur **"Exécuter quand même"**.
+> Si SmartScreen signale l'exécutable non signé, ne le lancez qu'après avoir vérifié que son SHA-256 correspond au checksum publié avec la release GitHub.
 
 ### 2. Lancer depuis le code source
-Pour exécuter Ratio Ghost à partir du code source, vous devez avoir [Tcl/Tk](http://tcl.tk/) en version **8.6** installé.
+L'environnement de développement officiellement supporté est Windows avec Tcl/Tk 8.6 et les bibliothèques natives incluses dans ce dépôt. Linux et macOS ne sont actuellement ni compilés ni testés par la CI.
 
 Ouvrez un terminal dans le répertoire du projet et exécutez :
 ```bash
@@ -61,7 +66,7 @@ Pour rediriger les requêtes de vos trackers torrents vers Ratio Ghost :
    - **Port HTTPS** : `3774`
 2. Ouvrez les paramètres/préférences de votre client Torrent.
 3. Allez dans la section **Connexion** ou **Serveur Proxy**.
-4. Définissez le type de proxy sur **HTTP** (ou HTTPS).
+4. Définissez le type de proxy sur **HTTP**.
 5. Configurez l'adresse de l'hôte sur `127.0.0.1` et le port sur `3773`.
 6. Activez l'option : *"Utiliser le proxy pour la résolution des noms d'hôtes"* (ou *"Utiliser le proxy pour les connexions de pair à pair"* si votre tracker l'exige, bien que Ratio Ghost soit conçu pour intercepter les requêtes du tracker, et non les connexions entre pairs).
 
@@ -71,7 +76,7 @@ Pour rediriger les requêtes de vos trackers torrents vers Ratio Ghost :
 3. Descendez jusqu'à la section **Serveur Proxy** :
    - **Type** : Sélectionnez HTTP.
    - **Hôte/Adresse** : Saisissez 127.0.0.1.
-   - **Port** : Saisissez 3773 (ou 3774 si vous utilisez des annonces de trackers en HTTPS).
+   - **Port** : Saisissez toujours `3773`, y compris pour les trackers HTTPS (`CONNECT` est intercepté localement afin d'ajuster les annonces du tracker).
 4. Assurez-vous que les options suivantes sont configurées :
    - **Utiliser le proxy pour les connexions aux pairs** : ❌ *Laisser décoché* (Ratio Ghost n'est pas un proxy pour les pairs, y acheminer le trafic des pairs ferait échouer les téléchargements).
    - **Utiliser le proxy pour les transferts vers les trackers** : Coché ! (Requis pour acheminer les requêtes des trackers via le proxy).
@@ -92,7 +97,10 @@ Pour rediriger les requêtes de vos trackers torrents vers Ratio Ghost :
 5. Cliquez sur **Appliquer** puis sur **OK**.
 
 > [!IMPORTANT]
-> Ratio Ghost n'intercepte que les **requêtes d'annonces des trackers**. Il ne redirige pas et ne masque pas votre trafic réel d'upload/download de pair à pair (P2P). Votre adresse IP restera donc visible pour les autres membres du swarm (l'essaim).
+> Ratio Ghost modifie les annonces des trackers HTTP et HTTPS. Le trafic HTTPS est déchiffré uniquement sur localhost, puis rechiffré vers le tracker avec validation de la chaîne CA et du nom d'hôte. Il ne redirige ni ne masque le trafic pair-à-pair : votre adresse IP reste visible aux autres membres de l'essaim.
+
+> [!WARNING]
+> L'interception HTTPS côté client utilise encore un certificat local autosigné unique. Elle est compatible avec la configuration qBittorrent actuellement testée, mais un client imposant la correspondance du nom du tracker peut la refuser. Conservez Ratio Ghost sur localhost. Une future migration TLS devra utiliser une CA locale et des certificats générés par hôte.
 
 ---
 
@@ -141,9 +149,9 @@ Si vous avez modifié le code source dans `rghost.vfs/` et souhaitez compiler un
 
 ### Prérequis
 Assurez-vous que les fichiers suivants sont présents à la racine du projet :
-- [tclkit.exe](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/tclkit.exe) (runtime Tcl/Tk 32 bits pour assurer la compatibilité avec les bibliothèques natives comme `Winico`)
-- [tclkitsh.exe](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/tclkitsh.exe) (runtime console 32 bits)
-- [sdx.kit](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/sdx.kit) (utilitaire Starkit Developer Extension)
+- `tclkit.exe` (runtime Tcl/Tk 32 bits pour assurer la compatibilité avec les bibliothèques natives comme `Winico`)
+- `tclkitsh.exe` (runtime console 32 bits)
+- `sdx.kit` (utilitaire Starkit Developer Extension)
 
 ### Commande de compilation
 Exécutez la commande PowerShell suivante à la racine du projet :
@@ -151,6 +159,16 @@ Exécutez la commande PowerShell suivante à la racine du projet :
 ```powershell
 .\tclkitsh.exe sdx.kit wrap ratioghost.exe -runtime .\tclkit.exe -vfs rghost.vfs
 ```
+
+### Tests
+
+Exécutez les tests Tcl automatisés avant de créer l'exécutable :
+
+```powershell
+.\tclkitsh.exe tests\all.tcl
+```
+
+Ratio Ghost génère un certificat TLS local et une clé privée uniques dans le profil utilisateur pour intercepter les trackers HTTPS. La clé privée n'est jamais distribuée dans le dépôt ou l'exécutable. La journalisation persistante du proxy est désactivée par défaut, car les URL de trackers peuvent contenir des identifiants privés.
 
 > [!TIP]
 > **Pourquoi du 32 bits ?**
@@ -160,17 +178,17 @@ Exécutez la commande PowerShell suivante à la racine du projet :
 
 ## 📂 Architecture du projet
 
-- [rghost.vfs/](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs) : Le système de fichiers virtuel (Virtual File System) contenant le code et les ressources.
-  - [rghost.vfs/main.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/main.tcl) : Script de point d'entrée principal.
-  - [rghost.vfs/lib/app-ghost/ghost.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/ghost.tcl) : Initialisation, gestionnaire de configuration et planificateur.
-  - [rghost.vfs/lib/app-ghost/proxy.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/proxy.tcl) : Moteur principal du proxy d'interception HTTP/HTTPS.
-  - [rghost.vfs/lib/app-ghost/gui.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/gui.tcl) : Interface utilisateur basée sur Tk.
-  - [rghost.vfs/lib/app-ghost/util.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/util.tcl) : Utilitaires et fonctions de formatage.
-  - [rghost.vfs/lib/app-ghost/update.tcl](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/rghost.vfs/lib/app-ghost/update.tcl) : Gestionnaire de vérification des mises à jour logicielles.
+- `rghost.vfs/` : Le système de fichiers virtuel (Virtual File System) contenant le code et les ressources.
+  - `rghost.vfs/main.tcl` : Script de point d'entrée principal.
+  - `rghost.vfs/lib/app-ghost/ghost.tcl` : Initialisation, gestionnaire de configuration et planificateur.
+  - `rghost.vfs/lib/app-ghost/proxy.tcl` : Moteur principal du proxy d'interception HTTP/HTTPS.
+  - `rghost.vfs/lib/app-ghost/gui.tcl` : Interface utilisateur basée sur Tk.
+  - `rghost.vfs/lib/app-ghost/util.tcl` : Utilitaires et fonctions de formatage.
+  - `rghost.vfs/lib/app-ghost/update.tcl` : Gestionnaire de vérification des mises à jour logicielles.
 
 ---
 
 ## 📝 Licence
 
-Distribué sous la licence GNU General Public License v3. Voir le fichier [license.txt](file:///c:/Users/LUCAS/Documents/WORKSPACE/1%20PROJECTS/Vibe%20Coding/RatioGhost/license.txt) pour plus de détails.
+Distribué sous la licence GNU General Public License v3. Voir le fichier [`license.txt`](license.txt) pour plus de détails.
 
