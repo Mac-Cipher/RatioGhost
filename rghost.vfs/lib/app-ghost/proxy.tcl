@@ -40,6 +40,38 @@ package require tls
 
 expr {srand([clock seconds])}
 set ::paused 0
+# The paused override is intentionally limited to isolated characterization
+# runs. It lets the .NET migration replay the legacy state machine without
+# driving the interactive Tcl/Tk control surface or changing user settings.
+if {[info exists ::env(RATIOGHOST_ISOLATED_TEST)] &&
+    $::env(RATIOGHOST_ISOLATED_TEST) eq "1" &&
+    [info exists ::env(RATIOGHOST_ISOLATED_PAUSED)] &&
+    $::env(RATIOGHOST_ISOLATED_PAUSED) eq "1"} {
+    set ::paused 1
+}
+set ::isolated_random_values {}
+set ::isolated_random_index 0
+if {[info exists ::env(RATIOGHOST_ISOLATED_TEST)] &&
+    $::env(RATIOGHOST_ISOLATED_TEST) eq "1" &&
+    [info exists ::env(RATIOGHOST_ISOLATED_RANDOM_SEQUENCE)]} {
+    foreach candidate [split $::env(RATIOGHOST_ISOLATED_RANDOM_SEQUENCE) ,] {
+        if {[string is double -strict $candidate] &&
+            $candidate >= 0.0 && $candidate < 1.0} {
+            lappend ::isolated_random_values $candidate
+        }
+    }
+}
+
+proc RatioGhostRandom {} {
+    global isolated_random_values isolated_random_index
+    if {$isolated_random_index < [llength $isolated_random_values]} {
+        set value [lindex $isolated_random_values $isolated_random_index]
+        incr isolated_random_index
+        return $value
+    }
+    return [expr {rand()}]
+}
+
 set ::auto_seed_only 0
 set ::active_connection_count 0
 set ::max_active_connections 32
@@ -1063,7 +1095,15 @@ proc process_first_line {log_num local https line} {
                         lassign $::reported_last($info_hash) reported_previous_down reported_previous_up reported_previous_left
                 }
                 if {[info exists ::reported_last_time($info_hash)]} {
-                    set elapsed_time [expr {[clock seconds] - $::reported_last_time($info_hash)}]
+                    if {[info exists ::env(RATIOGHOST_ISOLATED_TEST)] &&
+                        $::env(RATIOGHOST_ISOLATED_TEST) eq "1" &&
+                        [info exists ::env(RATIOGHOST_ISOLATED_ELAPSED_SECONDS)] &&
+                        [string is integer -strict $::env(RATIOGHOST_ISOLATED_ELAPSED_SECONDS)] &&
+                        $::env(RATIOGHOST_ISOLATED_ELAPSED_SECONDS) >= 0} {
+                        set elapsed_time $::env(RATIOGHOST_ISOLATED_ELAPSED_SECONDS)
+                    } else {
+                        set elapsed_time [expr {[clock seconds] - $::reported_last_time($info_hash)}]
+                    }
                 }
             }
 
@@ -1088,8 +1128,10 @@ proc process_first_line {log_num local https line} {
             } elseif {$last_peers >= $::settings(min_peers)} {
                 lassign [apply_download_reporting_options $fake $info_hash $event $downloaded $left] fake downloaded left
 
-                set down_ratio [expr {$::settings(updown_ratio_b) + rand() * ($::settings(updown_ratio_a) - $::settings(updown_ratio_b))}]
-                set up_ratio [expr {$::settings(upup_ratio_b) + rand() * ($::settings(upup_ratio_a) - $::settings(upup_ratio_b))}]
+                set down_random [RatioGhostRandom]
+                set up_random [RatioGhostRandom]
+                set down_ratio [expr {$::settings(updown_ratio_b) + $down_random * ($::settings(updown_ratio_a) - $::settings(updown_ratio_b))}]
+                set up_ratio [expr {$::settings(upup_ratio_b) + $up_random * ($::settings(upup_ratio_a) - $::settings(upup_ratio_b))}]
 
                 dlog "Previous upload was: $reported_previous_up"
                 dlog "Actual download was: $actual_previous_down_diff"
@@ -1104,8 +1146,10 @@ proc process_first_line {log_num local https line} {
                 dlog "Time from last report was: $elapsed_time"
                 dlog "Rolling for boost."
 
-                if {rand() * 100 < $::settings(boost_chance)} {
-                    set boost [expr {$::settings(boost) * 1024 * $elapsed_time * rand()}]
+                set boost_chance_random [RatioGhostRandom]
+                if {$boost_chance_random * 100 < $::settings(boost_chance)} {
+                    set boost_random [RatioGhostRandom]
+                    set boost [expr {$::settings(boost) * 1024 * $elapsed_time * $boost_random}]
                     dlog "Adding in extra boost of: $boost"
                     set uploaded [expr {$uploaded + $boost}]
                 }

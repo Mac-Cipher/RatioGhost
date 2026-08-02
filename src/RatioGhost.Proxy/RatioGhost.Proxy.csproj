@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../RatioGhost.Core/RatioGhost.Core.csproj" />
+  </ItemGroup>
+</Project>

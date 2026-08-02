@@ -18,3 +18,9 @@ rghost.vfs/lib/app-ghost/test_write.txt
 # Local QA and generated trust store
 .codex/qa/
 rghost.vfs/tls/cacert.pem
+
+# .NET migration artifacts
+**/bin/
+**/obj/
+artifacts/
+TestResults/
