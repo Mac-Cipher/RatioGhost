@@ -13,6 +13,126 @@ permissions:
   contents: read
 
 jobs:
+  dotnet-common-tests:
+    name: .NET common tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Test Core
+        run: dotnet test tests-dotnet/RatioGhost.Core.Tests/RatioGhost.Core.Tests.csproj --configuration Release
+
+      - name: Test Proxy
+        run: dotnet test tests-dotnet/RatioGhost.Proxy.Tests/RatioGhost.Proxy.Tests.csproj --configuration Release
+
+      - name: Audit NuGet dependencies
+        run: dotnet list RatioGhost.slnx package --vulnerable --include-transitive
+
+  dotnet-windows-package:
+    name: .NET Windows x64 package
+    runs-on: windows-latest
+    needs:
+      - dotnet-common-tests
+      - dotnet-desktop-builds
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Package win-x64
+        shell: pwsh
+        run: ./scripts/package-win-x64.ps1
+
+      - name: Smoke published Windows application
+        shell: pwsh
+        run: ./scripts/smoke-win-x64.ps1
+
+      - name: Verify .NET Windows package checksums and entries
+        shell: pwsh
+        run: |
+          $exe = '.\artifacts\win-x64\RatioGhost.exe'
+          $exeHashFile = '.\artifacts\win-x64\RatioGhost.exe.sha256'
+          $actualExeHash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          $declaredExeHash = ((Get-Content $exeHashFile -Raw).Trim() -split '\s+')[0].ToLower()
+          if ($actualExeHash -ne $declaredExeHash) {
+            throw "Published EXE checksum mismatch: expected $declaredExeHash, got $actualExeHash."
+          }
+          $archive = '.\artifacts\RatioGhost-dotnet-win-x64.zip'
+          $archiveHashFile = "$archive.sha256"
+          $actualArchiveHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          $declaredArchiveHash = ((Get-Content $archiveHashFile -Raw).Trim() -split '\s+')[0].ToLower()
+          if ($actualArchiveHash -ne $declaredArchiveHash) {
+            throw "Published ZIP checksum mismatch: expected $declaredArchiveHash, got $actualArchiveHash."
+          }
+          $entries = @(tar -tf $archive)
+          if (($entries -notcontains 'RatioGhost.exe') -or ($entries -notcontains 'RatioGhost.exe.sha256')) {
+            throw "Published ZIP entries are incomplete: $($entries -join ', ')."
+          }
+
+      - name: Upload .NET Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ratioghost-dotnet-win-x64
+          path: |
+            artifacts/win-x64/RatioGhost.exe
+            artifacts/win-x64/RatioGhost.exe.sha256
+            artifacts/RatioGhost-dotnet-win-x64.zip
+            artifacts/RatioGhost-dotnet-win-x64.zip.sha256
+          if-no-files-found: error
+
+  dotnet-desktop-builds:
+    name: .NET desktop tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-latest
+            rid: osx-x64
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Test Avalonia desktop and platform boundary
+        run: dotnet test tests-dotnet/RatioGhost.Desktop.Tests/RatioGhost.Desktop.Tests.csproj --configuration Release
+
+      - name: Compile Avalonia desktop for target RID
+        run: dotnet build src/RatioGhost.Desktop/RatioGhost.Desktop.csproj --configuration Release --runtime ${{ matrix.rid }}
+
+      - name: Verify attended trust test is opt-in
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RATIOGHOST_RUN_ATTENDED_TRUST_TEST: ''
+          RATIOGHOST_ATTENDED_PROFILE: ''
+        run: dotnet test tests-dotnet/RatioGhost.Desktop.Tests/RatioGhost.Desktop.Tests.csproj --configuration Release --filter 'FullyQualifiedName~TrustRoundTrip_CurrentUserRootStore'
+
   build:
     name: Build & Release Executable
     runs-on: windows-latest
@@ -64,6 +184,7 @@ jobs:
         shell: pwsh
         run: |
           $env:APPDATA = Join-Path $pwd 'ci-appdata'
+          $env:RATIOGHOST_ISOLATED_TEST = '1'
           New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null
           $process = Start-Process -FilePath .\ratioghost.exe -ArgumentList 'm' -PassThru
           try {
@@ -120,7 +241,9 @@ jobs:
   release:
     name: Publish Release
     runs-on: windows-latest
-    needs: build
+    needs:
+      - build
+      - dotnet-windows-package
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -132,11 +255,19 @@ jobs:
           name: ratioghost-windows
           path: .
 
+      - name: Download .NET Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ratioghost-dotnet-win-x64
+          path: dotnet-package
+
       - name: Release and Upload Asset
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ratioghost.exe
             ratioghost.exe.sha256
+            dotnet-package/RatioGhost-dotnet-win-x64.zip
+            dotnet-package/RatioGhost-dotnet-win-x64.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -10,6 +10,9 @@ Ratio Ghost est un proxy local léger d'interception HTTP/HTTPS conçu pour modi
 
 Écrit en Tcl/Tk, il agit comme un proxy "man-in-the-middle" entre votre client BitTorrent (ex: uTorrent, qBittorrent) et le tracker, ajustant vos statistiques d'upload et de download à la volée de manière transparente.
 
+> [!NOTE]
+> Une migration progressive C#/.NET 10 + Avalonia est maintenant développée côte à côte avec la version Tcl. Le jalon Windows inclut le proxy HTTP/HTTPS, une CA locale propre à l'installation avec consentement explicite, le tray, la persistance et un package autonome `win-x64`. Les tests isolés d'annonces HTTP et HTTPS avec le vrai qBittorrent, une première comparaison à entrée identique avec Tcl et le cycle de confiance Windows dans `CurrentUser\Root` (1/1) passent sous Windows. Le consentement depuis l'UI packagée, la validation qBittorrent avec la racine approuvée et les intégrations desktop complètes macOS/Linux restent à terminer ; les services d'autostart Linux XDG et macOS LaunchAgent sont toutefois couverts par des tests de fichiers isolés. Consultez [`docs/MIGRATION.md`](docs/MIGRATION.md).
+
 ---
 
 ## ✨ Fonctionnalités clés
@@ -47,8 +50,12 @@ Pour lancer Ratio Ghost sans aucune installation ou compilation :
 > [!NOTE]
 > Si SmartScreen signale l'exécutable non signé, ne le lancez qu'après avoir vérifié que son SHA-256 correspond au checksum publié avec la release GitHub.
 
+### Aperçu du jalon .NET Windows
+
+Les releases taguées conservent l'exécutable Tcl ci-dessus et publient séparément `RatioGhost-dotnet-win-x64.zip` avec `RatioGhost-dotnet-win-x64.zip.sha256`. Vérifiez le checksum, décompressez l'archive, puis lancez `RatioGhost.exe`. L'activation HTTPS demande une confirmation explicite dans l'onglet **Platform**, suivie du dialogue de sécurité Windows. Ce package est le jalon de migration Windows ; consultez [`docs/MIGRATION.md`](docs/MIGRATION.md) avant de remplacer votre utilisation Tcl.
+
 ### 2. Lancer depuis le code source
-L'environnement de développement officiellement supporté est Windows avec Tcl/Tk 8.6 et les bibliothèques natives incluses dans ce dépôt. Linux et macOS ne sont actuellement ni compilés ni testés par la CI.
+L'environnement d'exécution officiellement supporté reste Windows. La CI compile le projet Avalonia et exécute les tests .NET communs ainsi que la frontière des services de plateforme sous Windows, Linux et macOS ; Ubuntu WSL exerce aussi le service d'autostart XDG Linux et le service macOS LaunchAgent est testé avec un chemin injecté, mais l'application desktop complète, les magasins de certificats Linux/macOS et les intégrations natives tray/session ne sont pas encore validés. La version Tcl/Tk exige Windows, Tcl/Tk 8.6 et les bibliothèques natives incluses dans ce dépôt.
 
 Ouvrez un terminal dans le répertoire du projet et exécutez :
 ```bash
@@ -100,7 +107,7 @@ Pour rediriger les requêtes de vos trackers torrents vers Ratio Ghost :
 > Ratio Ghost modifie les annonces des trackers HTTP et HTTPS. Le trafic HTTPS est déchiffré uniquement sur localhost, puis rechiffré vers le tracker avec validation de la chaîne CA et du nom d'hôte. Il ne redirige ni ne masque le trafic pair-à-pair : votre adresse IP reste visible aux autres membres de l'essaim.
 
 > [!WARNING]
-> L'interception HTTPS côté client utilise encore un certificat local autosigné unique. Elle est compatible avec la configuration qBittorrent actuellement testée, mais un client imposant la correspondance du nom du tracker peut la refuser. Conservez Ratio Ghost sur localhost. Une future migration TLS devra utiliser une CA locale et des certificats générés par hôte.
+> L'exécutable Tcl historique utilise encore un certificat local autosigné unique. La nouvelle application .NET utilise au contraire une CA propre à l'installation et des certificats générés par hôte. Son cycle Windows de stockage Root assisté passe maintenant 1/1 et supprime exactement la CA ; le consentement depuis l'UI packagée et la validation qBittorrent avec la racine approuvée restent à valider dans un test d'interopérabilité dédié. Conservez Ratio Ghost sur localhost.
 
 ---
 
@@ -118,6 +125,7 @@ Une fois que Ratio Ghost est lancé et que votre client torrent est configuré p
 - **Vérification des Leechers (Leechers Check)** : Détermine le seuil minimum de leechers (par défaut 5). Si un torrent a moins de leechers que ce seuil, Ratio Ghost rapporte les vraies statistiques pour éviter d'éveiller les soupçons.
 - **Multiplicateurs (Multipliers)** : Configure la plage de multiplicateurs aléatoires pour l'upload/download (ex : de 4.0 à 8.0 fois) qui sera appliquée à votre upload rapporté.
 - **Boost d'upload (Upload Boost)** : Ajoute un boost de vitesse aléatoire (ex : jusqu'à 15 Ko/s avec une probabilité de 5%) pour simuler une activité réelle.
+- **Journal de diagnostic redacted** : Activez, si nécessaire, un journal tournant dans le profil ; les identifiants des trackers et les segments assimilables à des jetons sont masqués.
 
 ### 3. Exécution en arrière-plan
 - **Fichier -> Cacher (File -> Hide)** : Réduit l'application dans la zone de notification Windows (Systray).
@@ -168,7 +176,14 @@ Exécutez les tests Tcl automatisés avant de créer l'exécutable :
 .\tclkitsh.exe tests\all.tcl
 ```
 
-Ratio Ghost génère un certificat TLS local et une clé privée uniques dans le profil utilisateur pour intercepter les trackers HTTPS. La clé privée n'est jamais distribuée dans le dépôt ou l'exécutable. La journalisation persistante du proxy est désactivée par défaut, car les URL de trackers peuvent contenir des identifiants privés.
+Pour vérifier le package .NET Windows du jalon prioritaire, exécutez la séquence de publication et de smoke dans PowerShell :
+
+```powershell
+.\scripts\package-win-x64.ps1
+.\scripts\smoke-win-x64.ps1
+```
+
+Ratio Ghost génère un certificat TLS local et une clé privée uniques dans le profil utilisateur pour intercepter les trackers HTTPS. La clé privée n'est jamais distribuée dans le dépôt ou l'exécutable. La journalisation persistante du proxy est désactivée par défaut ; lorsqu'elle est activée explicitement, le proxy .NET écrit un journal tournant après avoir masqué les identifiants des trackers et les segments de chemin assimilables à des jetons.
 
 > [!TIP]
 > **Pourquoi du 32 bits ?**

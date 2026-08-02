@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="src/RatioGhost.Core/RatioGhost.Core.csproj" />
+  <Project Path="src/RatioGhost.Proxy/RatioGhost.Proxy.csproj" />
+  <Project Path="src/RatioGhost.Desktop/RatioGhost.Desktop.csproj" />
+  <Project Path="tests-dotnet/RatioGhost.Core.Tests/RatioGhost.Core.Tests.csproj" />
+  <Project Path="tests-dotnet/RatioGhost.Proxy.Tests/RatioGhost.Proxy.Tests.csproj" />
+  <Project Path="tests-dotnet/RatioGhost.Desktop.Tests/RatioGhost.Desktop.Tests.csproj" />
+</Solution>

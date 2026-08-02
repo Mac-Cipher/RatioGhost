@@ -10,6 +10,9 @@ Ratio Ghost is a lightweight, local HTTP/HTTPS intercepting proxy designed to au
 
 Written in Tcl/Tk, it acts as a man-in-the-middle proxy between your BitTorrent client (e.g., uTorrent, qBittorrent) and the tracker, seamlessly adjusting your upload and download statistics on the fly.
 
+> [!NOTE]
+> A progressive C#/.NET 10 + Avalonia migration now lives side by side with the Tcl application. The Windows milestone includes the HTTP/HTTPS proxy, an installation-specific local CA with explicit consent, tray integration, persistence, and a self-contained `win-x64` package. Isolated real-qBittorrent HTTP and HTTPS announce tests, an initial same-input comparison against Tcl, and the attended Windows Root-store round trip (1/1) now pass on Windows. Packaged UI consent, qBittorrent validation with the trusted root enabled, and the complete macOS/Linux desktop integrations remain pending; Linux XDG and macOS LaunchAgent autostart file services are covered separately with collision-safe tests. See [`docs/MIGRATION.md`](docs/MIGRATION.md).
+
 ---
 
 ## ✨ Key Features
@@ -47,8 +50,12 @@ To run Ratio Ghost without any installation or compilation:
 > [!NOTE]
 > If SmartScreen warns about the unsigned executable, run it only after the SHA-256 matches the checksum published with the GitHub release.
 
+### .NET Windows milestone preview
+
+Tagged releases keep the Tcl executable above and publish `RatioGhost-dotnet-win-x64.zip` separately with `RatioGhost-dotnet-win-x64.zip.sha256`. Verify the checksum, extract the archive, and run `RatioGhost.exe`. Enabling HTTPS requires explicit confirmation on the **Platform** tab followed by the Windows security dialog. This package is the Windows migration milestone; read [`docs/MIGRATION.md`](docs/MIGRATION.md) before replacing a Tcl deployment.
+
 ### 2. Running From Source
-The supported source-development environment is Windows with Tcl/Tk 8.6 and the native libraries included in this repository. Linux and macOS are not currently built or tested by CI.
+Windows remains the only supported runtime environment. CI compiles Avalonia and runs the common .NET plus platform-boundary tests on Windows, Linux, and macOS; Ubuntu WSL exercises the collision-safe Linux XDG autostart service and macOS has an injected-path LaunchAgent file test, but the full desktop application, Linux/macOS trust stores, and native tray/session integrations are not yet validated. The Tcl/Tk application requires Windows, Tcl/Tk 8.6, and the native libraries included in this repository.
 
 Open a terminal in the project directory and run:
 ```bash
@@ -100,7 +107,7 @@ To route your torrent tracker announces through Ratio Ghost:
 > Ratio Ghost modifies HTTP and HTTPS tracker announces. HTTPS is decrypted only on localhost, then re-encrypted to the tracker with CA-chain and hostname validation. It does not route or hide peer-to-peer upload/download traffic, so your IP remains visible to peers in the swarm.
 
 > [!WARNING]
-> Client-facing HTTPS interception still uses a unique self-signed local certificate. It is compatible with the currently tested qBittorrent setup, but clients that enforce tracker hostname matching may reject it. Keep Ratio Ghost bound to localhost. A future TLS-runtime migration should replace this with a local CA and per-host certificates.
+> The legacy Tcl executable still uses one unique self-signed local certificate. The new .NET application instead uses an installation-specific CA and per-host certificates. Its attended Windows Root-store lifecycle now passes 1/1 and cleans up exactly; the packaged UI consent and qBittorrent validation with the trusted root enabled still require a dedicated attended interoperability test. Keep Ratio Ghost bound to localhost.
 
 ---
 
@@ -118,6 +125,7 @@ Once Ratio Ghost is running and your torrent client is configured to route throu
 - **Leechers Check**: Set the minimum leechers threshold (default is 5). If a torrent has fewer leechers, it reports actual stats to avoid looking suspicious.
 - **Multipliers**: Set the random multiplier range for both upload/download (e.g. 4.0 to 8.0 times) which will be added to your reported upload.
 - **Upload Boost**: Add a random speed boost (e.g., up to 15 KB/s with a 5% chance) to simulate real activity.
+- **Redacted proxy debug log**: Opt in to a rotating profile log with tracker credentials and token-like path segments masked.
 
 ### 3. Background Execution
 - **File -> Hide**: Minimizes the application to the Windows System Tray (Systray).
@@ -168,7 +176,14 @@ Run the automated Tcl tests before packaging:
 .\tclkitsh.exe tests\all.tcl
 ```
 
-Ratio Ghost generates a unique local TLS certificate and private key in the user profile for HTTPS tracker interception. The private key is never shipped in the repository or release executable. Persistent proxy debug logging is disabled by default because tracker URLs can contain private credentials.
+For the Windows-first .NET package, run the publish/package smoke sequence from PowerShell:
+
+```powershell
+.\scripts\package-win-x64.ps1
+.\scripts\smoke-win-x64.ps1
+```
+
+Ratio Ghost generates a unique local TLS certificate and private key in the user profile for HTTPS tracker interception. The private key is never shipped in the repository or release executable. Persistent proxy debug logging is disabled by default; when explicitly enabled, the .NET proxy writes a rotating log after redacting tracker credentials and token-like path segments.
 
 > [!TIP]
 > **Why 32-bit?**

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <ApplicationIcon>../../rghost.vfs/tclkit.ico</ApplicationIcon>
+    <AssemblyName>RatioGhost</AssemblyName>
+    <RootNamespace>RatioGhost.Desktop</RootNamespace>
+    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <ProjectReference Include="../RatioGhost.Core/RatioGhost.Core.csproj" />
+    <ProjectReference Include="../RatioGhost.Proxy/RatioGhost.Proxy.csproj" />
+    <AvaloniaResource Include="../../logo.png" Link="Assets/logo.png" />
+    <InternalsVisibleTo Include="RatioGhost.Desktop.Tests" />
+  </ItemGroup>
+</Project>

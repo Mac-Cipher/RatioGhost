@@ -387,7 +387,11 @@ if {[info exists ::enable_tls_interception] && $::enable_tls_interception} {
 LoadSettings
 CreateGui
 
-if {$::WINDOWS} {
+set isolated_test [expr {
+    [info exists ::env(RATIOGHOST_ISOLATED_TEST)] &&
+    $::env(RATIOGHOST_ISOLATED_TEST) eq "1"
+}]
+if {$::WINDOWS && !$isolated_test} {
     trace add variable ::settings(autostart) write ApplyAutostart
     SyncAutostart
 }
