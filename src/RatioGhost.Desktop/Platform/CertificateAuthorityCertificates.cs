@@ -12,6 +12,12 @@ internal static class CertificateAuthorityCertificates
 {
     private const string ServerAuthenticationOid = "1.3.6.1.5.5.7.3.1";
 
+    private static X509KeyStorageFlags PrivateKeyStorageFlags =>
+        X509KeyStorageFlags.Exportable |
+        (OperatingSystem.IsMacOS()
+            ? X509KeyStorageFlags.DefaultKeySet
+            : X509KeyStorageFlags.EphemeralKeySet);
+
     public static X509Certificate2 CreateRoot(string installationId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(installationId);
@@ -43,7 +49,7 @@ internal static class CertificateAuthorityCertificates
             return X509CertificateLoader.LoadPkcs12(
                 pkcs12,
                 password: null,
-                X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable);
+                PrivateKeyStorageFlags);
         }
         finally
         {
@@ -102,7 +108,7 @@ internal static class CertificateAuthorityCertificates
             return X509CertificateLoader.LoadPkcs12(
                 pkcs12,
                 password: null,
-                X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable);
+                PrivateKeyStorageFlags);
         }
         finally
         {
