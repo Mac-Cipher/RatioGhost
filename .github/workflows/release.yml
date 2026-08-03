@@ -183,8 +183,45 @@ jobs:
       - name: Smoke Standalone EXE
         shell: pwsh
         run: |
+          function Reserve-LoopbackPortPair {
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+              $first = [System.Net.Sockets.TcpListener]::new(
+                [System.Net.IPAddress]::Loopback,
+                0)
+              $second = $null
+              try {
+                $first.Start()
+                $port = ([System.Net.IPEndPoint]$first.LocalEndpoint).Port
+                if ($port -ge 65534) {
+                  $first.Stop()
+                  continue
+                }
+                $second = [System.Net.Sockets.TcpListener]::new(
+                  [System.Net.IPAddress]::Loopback,
+                  ($port + 1))
+                $second.Start()
+                return [pscustomobject]@{
+                  Port = $port
+                  First = $first
+                  Second = $second
+                }
+              } catch {
+                $first.Stop()
+                if ($null -ne $second) {
+                  $second.Stop()
+                }
+              }
+            }
+            throw 'Could not reserve adjacent loopback ports for the Tcl smoke test.'
+          }
+
           $env:APPDATA = Join-Path $pwd 'ci-appdata'
           $env:RATIOGHOST_ISOLATED_TEST = '1'
+          $portPair = Reserve-LoopbackPortPair
+          $listenPort = $portPair.Port
+          $env:RATIOGHOST_LISTEN_PORT = [string]$listenPort
+          $portPair.First.Stop()
+          $portPair.Second.Stop()
           New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null
           $process = Start-Process -FilePath .\ratioghost.exe -ArgumentList 'm' -PassThru
           try {
@@ -192,9 +229,9 @@ jobs:
             foreach ($attempt in 1..30) {
               Start-Sleep -Milliseconds 500
               $ports = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-                Where-Object { $_.OwningProcess -eq $process.Id -and ($_.LocalPort -eq 3773 -or $_.LocalPort -eq 3774) }
+                Where-Object { $_.OwningProcess -eq $process.Id -and ($_.LocalPort -eq $listenPort -or $_.LocalPort -eq ($listenPort + 1)) }
               $openPorts = @($ports | Select-Object -ExpandProperty LocalPort -Unique)
-              if ($openPorts.Count -ge 2) {
+              if (($openPorts -contains $listenPort) -and ($openPorts -contains ($listenPort + 1))) {
                 $listening = $true
                 break
               }
@@ -203,7 +240,7 @@ jobs:
               }
             }
             if (!$listening) {
-              throw "RatioGhost did not open expected ports 3773 and 3774."
+              throw "RatioGhost did not open expected ports $listenPort and $($listenPort + 1)."
             }
             $version = (Get-Content .\rghost.vfs\VERSION -Raw).Trim()
             if ($version -eq '0.19') {
