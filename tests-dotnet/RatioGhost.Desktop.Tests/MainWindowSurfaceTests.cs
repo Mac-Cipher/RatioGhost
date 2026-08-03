@@ -43,6 +43,7 @@ public sealed class MainWindowSurfaceTests
         Assert.False(App.ShouldCreateTrayIcon(isWindows: false));
         Assert.Equal(1100, window.Width);
         Assert.Equal(760, window.Height);
+        Assert.NotNull(window.Icon);
 
         var root = Assert.IsType<Grid>(window.Content);
         Assert.Equal(2, root.Children.Count);

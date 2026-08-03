@@ -72,6 +72,7 @@ public sealed class MainWindow : Window
         MinWidth = 900;
         MinHeight = 620;
         Background = RatioGhostPalette.Canvas;
+        Icon = App.CreateAppIcon();
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Content = BuildContent();
         Closing += OnClosing;

@@ -51,16 +51,21 @@ public sealed class App : Application
         MainWindow window,
         IClassicDesktopStyleApplicationLifetime desktop)
     {
-        using var iconStream = AssetLoader.Open(new Uri("avares://RatioGhost/Assets/logo.png"));
         var tray = new TrayIcon
         {
-            Icon = new WindowIcon(iconStream),
+            Icon = CreateAppIcon(),
             ToolTipText = "RatioGhost",
             Menu = BuildTrayMenu(window),
             IsVisible = true
         };
         tray.Clicked += (_, _) => window.ShowFromTray();
         return tray;
+    }
+
+    internal static WindowIcon CreateAppIcon()
+    {
+        using var iconStream = AssetLoader.Open(new Uri("avares://RatioGhost/Assets/tclkit.ico"));
+        return new WindowIcon(iconStream);
     }
 
     internal static NativeMenu BuildTrayMenu(MainWindow window)
