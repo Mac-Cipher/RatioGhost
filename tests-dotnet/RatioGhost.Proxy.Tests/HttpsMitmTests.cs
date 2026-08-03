@@ -79,6 +79,60 @@ public sealed class HttpsMitmTests
         Assert.StartsWith("HTTP/1.1 200", Encoding.ASCII.GetString(response.ToArray()), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("tracker.test")]
+    [InlineData("127.0.0.1")]
+    public async Task Connect_RecoversTrackerHostnameWhenConnectUsesResolvedIp(string hostHeader)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var certificates = new TestCertificateAuthority();
+        using var outbound = new RecordingHandler();
+        var proxyPort = ReservePort();
+        await using var proxy = new HttpProxyServer(
+            new AnnounceTransformer(),
+            () => new RatioGhostSettings
+            {
+                ListenPort = proxyPort,
+                ReportDownloadAsZero = true,
+                PretendToSeed = true
+            },
+            certificates,
+            outbound);
+        await proxy.StartAsync(timeout.Token);
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, proxyPort, timeout.Token);
+        await using var network = client.GetStream();
+        await network.WriteAsync(
+            Encoding.ASCII.GetBytes("CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n\r\n"),
+            timeout.Token);
+        Assert.StartsWith("HTTP/1.1 200", await ReadHeadersAsync(network, timeout.Token), StringComparison.Ordinal);
+
+        using var tls = new SslStream(
+            network,
+            leaveInnerStreamOpen: true,
+            (_, certificate, _, _) => ValidateWithTestRoot(certificate, certificates.Root));
+        await tls.AuthenticateAsClientAsync(
+            new SslClientAuthenticationOptions
+            {
+                TargetHost = "tracker.test",
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+            },
+            timeout.Token);
+        await tls.WriteAsync(
+            Encoding.ASCII.GetBytes(
+                $"GET /announce?info_hash=abc&downloaded=50&uploaded=20&left=700 HTTP/1.1\r\nHost: {hostHeader}\r\nConnection: close\r\n\r\n"),
+            timeout.Token);
+        using var response = new MemoryStream();
+        await tls.CopyToAsync(response, timeout.Token);
+
+        Assert.NotNull(outbound.ObservedTarget);
+        Assert.Equal("tracker.test", outbound.ObservedTarget!.Host);
+        Assert.Contains("downloaded=0", outbound.ObservedTarget.Query, StringComparison.Ordinal);
+        Assert.StartsWith("HTTP/1.1 200", Encoding.ASCII.GetString(response.ToArray()), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Connect_FailsBeforeTlsWhenCaIsNotTrusted()
     {
@@ -185,8 +239,14 @@ public sealed class HttpsMitmTests
         using var response = new MemoryStream();
         await stream.CopyToAsync(response, timeout.Token);
 
-        Assert.Empty(response.ToArray());
-        Assert.Contains("Connection failed", await failure.Task.WaitAsync(timeout.Token), StringComparison.Ordinal);
+        Assert.StartsWith(
+            "HTTP/1.1 502",
+            Encoding.ASCII.GetString(response.ToArray()),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Tracker connection failed",
+            await failure.Task.WaitAsync(timeout.Token),
+            StringComparison.Ordinal);
         await trackerTask;
     }
 
@@ -350,7 +410,10 @@ public sealed class HttpsMitmTests
                     X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment,
                     true));
             var san = new SubjectAlternativeNameBuilder();
-            san.AddDnsName(host);
+            if (IPAddress.TryParse(host, out var address))
+                san.AddIpAddress(address);
+            else
+                san.AddDnsName(host);
             request.CertificateExtensions.Add(san.Build());
             var serial = RandomNumberGenerator.GetBytes(16);
             serial[0] &= 0x7F;

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Text;
 using RatioGhost.Core.Announcements;
 using RatioGhost.Core.Configuration;
@@ -73,6 +74,68 @@ public sealed class HttpProxyServerTests
         await proxy.StartAsync(timeout.Token);
         Assert.Empty(debugLog.Messages);
         await proxy.StopAsync();
+    }
+
+    [Fact]
+    public async Task Proxy_RetriesTransientTrackerFailure()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var handler = new FlakyTrackerHandler();
+        var proxyPort = ReservePort();
+        await using var proxy = new HttpProxyServer(
+            new AnnounceTransformer(),
+            () => new RatioGhostSettings { ListenPort = proxyPort },
+            outboundHandler: handler);
+        await proxy.StartAsync(timeout.Token);
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, proxyPort, timeout.Token);
+        await using var stream = client.GetStream();
+        await stream.WriteAsync(
+            Encoding.ASCII.GetBytes(
+                "GET http://tracker.test/announce?info_hash=abc&downloaded=1&uploaded=1&left=1 HTTP/1.1\r\n" +
+                "Host: tracker.test\r\nConnection: close\r\n\r\n"),
+            timeout.Token);
+        using var response = new MemoryStream();
+        await stream.CopyToAsync(response, timeout.Token);
+
+        Assert.Equal(2, handler.Attempts);
+        Assert.StartsWith("HTTP/1.1 200", Encoding.ASCII.GetString(response.ToArray()), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Proxy_ReturnsBadGatewayWithOutboundFailureDetails()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var handler = new FailedTrackerHandler();
+        var proxyPort = ReservePort();
+        await using var proxy = new HttpProxyServer(
+            new AnnounceTransformer(),
+            () => new RatioGhostSettings { ListenPort = proxyPort },
+            outboundHandler: handler);
+        var activities = new List<ProxyEvent>();
+        proxy.Activity += (_, activity) => activities.Add(activity);
+        await proxy.StartAsync(timeout.Token);
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, proxyPort, timeout.Token);
+        await using var stream = client.GetStream();
+        await stream.WriteAsync(
+            Encoding.ASCII.GetBytes(
+                "GET http://tracker.test/announce?info_hash=abc&downloaded=1&uploaded=1&left=1 HTTP/1.1\r\n" +
+                "Host: tracker.test\r\nConnection: close\r\n\r\n"),
+            timeout.Token);
+        using var response = new MemoryStream();
+        await stream.CopyToAsync(response, timeout.Token);
+
+        var failure = Assert.Single(
+            activities,
+            activity => activity.Disposition == AnnounceDisposition.RejectedInvalid &&
+                        activity.Message.StartsWith("Tracker connection failed", StringComparison.Ordinal));
+        Assert.Equal(2, handler.Attempts);
+        Assert.Equal("tracker.test", failure.Target!.Host);
+        Assert.Contains("certificate chain unavailable", failure.Message, StringComparison.Ordinal);
+        Assert.StartsWith("HTTP/1.1 502", Encoding.ASCII.GetString(response.ToArray()), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -175,6 +238,46 @@ public sealed class HttpProxyServerTests
         public List<string> Messages { get; } = [];
 
         public void Write(string message) => Messages.Add(message);
+    }
+
+    private sealed class FlakyTrackerHandler : HttpMessageHandler
+    {
+        public int Attempts => Volatile.Read(ref _attempts);
+
+        private int _attempts;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _attempts) == 1)
+                throw new HttpRequestException(
+                    "transient TLS handshake failure",
+                    new AuthenticationException("remote party reset handshake"));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(
+                    Encoding.ASCII.GetBytes("d8:completei1e10:incompletei1e8:intervali60ee"))
+            });
+        }
+    }
+
+    private sealed class FailedTrackerHandler : HttpMessageHandler
+    {
+        public int Attempts => Volatile.Read(ref _attempts);
+
+        private int _attempts;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _attempts);
+            throw new HttpRequestException(
+                "The SSL connection could not be established",
+                new AuthenticationException("certificate chain unavailable"));
+        }
     }
 
     private static async Task RunTrackerAsync(

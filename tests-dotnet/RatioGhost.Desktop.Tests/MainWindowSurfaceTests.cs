@@ -53,11 +53,24 @@ public sealed class MainWindowSurfaceTests
             panel => panel.Children.OfType<Button>().Any(button => Equals(button.Content, "Save and apply")));
 
         var tabSurface = Assert.IsType<Border>(root.Children[1]);
+        Assert.Equal(20, tabSurface.CornerRadius.TopLeft);
+        Assert.Equal(2, tabSurface.BoxShadow.Count);
         var tabs = Assert.IsType<TabControl>(tabSurface.Child);
         var tabItems = tabs.Items.Cast<TabItem>().ToArray();
         Assert.Equal(
             ["Activity", "Torrents", "Options", "Platform"],
             tabItems.Select(item => item.Header).ToArray());
+        Assert.All(tabItems, item => Assert.True(item.MinHeight >= 40));
+
+        var buttons = Descendants(root).OfType<Button>().ToArray();
+        Assert.NotEmpty(buttons);
+        Assert.All(buttons, button => Assert.True(button.MinHeight >= 40));
+        Assert.All(
+            Descendants(root).OfType<TextBox>(),
+            input => Assert.True(input.MinHeight >= 40));
+        Assert.All(
+            Descendants(root).OfType<CheckBox>(),
+            checkBox => Assert.True(checkBox.MinHeight >= 40));
 
         var options = Assert.IsType<ScrollViewer>(tabItems[2].Content);
         Assert.True(ContainsText(options, "Write redacted proxy debug log"));
