@@ -36,40 +36,39 @@ public sealed class MainWindowSurfaceTests
             new TestCertificateAuthorityService(),
             shutdown: static () => { });
 
-        Assert.Equal("RatioGhost .NET — Windows milestone", window.Title);
-        Assert.Equal("RatioGhost .NET — Windows milestone", MainWindow.ResolveWindowTitle(isWindows: true));
-        Assert.Equal("RatioGhost .NET", MainWindow.ResolveWindowTitle(isWindows: false));
+        Assert.Equal("RatioGhost", window.Title);
+        Assert.Equal("RatioGhost", MainWindow.ResolveWindowTitle(isWindows: true));
+        Assert.Equal("RatioGhost", MainWindow.ResolveWindowTitle(isWindows: false));
         Assert.True(App.ShouldCreateTrayIcon(isWindows: true));
         Assert.False(App.ShouldCreateTrayIcon(isWindows: false));
-        Assert.Equal(880, window.Width);
-        Assert.Equal(650, window.Height);
+        Assert.Equal(1100, window.Width);
+        Assert.Equal(760, window.Height);
 
         var root = Assert.IsType<Grid>(window.Content);
         Assert.Equal(2, root.Children.Count);
-        var toolbar = Assert.IsType<StackPanel>(root.Children[0]);
-        Assert.Equal(5, toolbar.Children.Count);
+        var header = Assert.IsType<Grid>(root.Children[0]);
+        Assert.Contains(
+            header.Children.OfType<StackPanel>(),
+            panel => panel.Children.OfType<Button>().Any(button => Equals(button.Content, "Save and apply")));
 
-        var tabs = Assert.IsType<TabControl>(root.Children[1]);
+        var tabSurface = Assert.IsType<Border>(root.Children[1]);
+        var tabs = Assert.IsType<TabControl>(tabSurface.Child);
         var tabItems = tabs.Items.Cast<TabItem>().ToArray();
         Assert.Equal(
             ["Activity", "Torrents", "Options", "Platform"],
             tabItems.Select(item => item.Header).ToArray());
 
         var options = Assert.IsType<ScrollViewer>(tabItems[2].Content);
-        var optionsGrid = Assert.IsType<Grid>(options.Content);
-        Assert.Contains(optionsGrid.Children, child => child is TextBlock textBlock &&
-            Equals(textBlock.Text, "Write redacted proxy debug log"));
+        Assert.True(ContainsText(options, "Write redacted proxy debug log"));
 
-        var platform = Assert.IsType<StackPanel>(tabItems[3].Content);
-        Assert.Contains(platform.Children, child => child is CheckBox checkBox &&
-            Equals(checkBox.Content, "Start automatically with the user session"));
-        var certificateActions = Assert.Single(
-            platform.Children.OfType<StackPanel>(),
-            panel => panel.Children.OfType<Button>().Any());
-        Assert.Contains(certificateActions.Children, child => child is Button button &&
-            Equals(button.Content, "Enable HTTPS interception"));
-        Assert.Contains(certificateActions.Children, child => child is Button button &&
-            Equals(button.Content, "Remove CA trust"));
+        var platform = Assert.IsType<ScrollViewer>(tabItems[3].Content);
+        Assert.True(ContainsText(platform, "Start automatically with the user session"));
+        var platformButtons = Descendants(platform)
+            .OfType<Button>()
+            .Select(button => button.Content)
+            .ToArray();
+        Assert.Contains("Enable HTTPS interception", platformButtons);
+        Assert.Contains("Remove CA trust", platformButtons);
 
         var trayMenu = App.BuildTrayMenu(window);
         var trayItems = trayMenu.Items.ToArray();
@@ -78,6 +77,45 @@ public sealed class MainWindowSurfaceTests
         Assert.Equal("Pause / resume rewriting", Assert.IsType<NativeMenuItem>(trayItems[1]).Header);
         Assert.IsType<NativeMenuItemSeparator>(trayItems[2]);
         Assert.Equal("Exit", Assert.IsType<NativeMenuItem>(trayItems[3]).Header);
+    }
+
+    private static bool ContainsText(Control root, string text) =>
+        Descendants(root).OfType<TextBlock>().Any(block => Equals(block.Text, text)) ||
+        Descendants(root).OfType<CheckBox>().Any(checkBox => Equals(checkBox.Content, text));
+
+    private static IEnumerable<Control> Descendants(Control root)
+    {
+        yield return root;
+
+        if (root is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                foreach (var descendant in Descendants(child))
+                    yield return descendant;
+            }
+        }
+
+        if (root is ContentControl contentControl && contentControl.Content is Control content)
+        {
+            foreach (var descendant in Descendants(content))
+                yield return descendant;
+        }
+
+        if (root is Decorator decorator && decorator.Child is Control decoratedChild)
+        {
+            foreach (var descendant in Descendants(decoratedChild))
+                yield return descendant;
+        }
+
+        if (root is ItemsControl itemsControl)
+        {
+            foreach (var item in itemsControl.Items.OfType<Control>())
+            {
+                foreach (var descendant in Descendants(item))
+                    yield return descendant;
+            }
+        }
     }
 
     private sealed class InMemorySettingsStore : ISettingsStore
