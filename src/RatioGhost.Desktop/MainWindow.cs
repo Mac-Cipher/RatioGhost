@@ -1,6 +1,9 @@
 using System.Globalization;
 using Avalonia;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -119,10 +122,10 @@ public sealed class MainWindow : Window
             VerticalContentAlignment = VerticalAlignment.Stretch,
             Items =
             {
-                new TabItem { Header = "Activity", Content = BuildActivityTab() },
-                new TabItem { Header = "Torrents", Content = BuildTorrentsTab() },
-                new TabItem { Header = "Options", Content = BuildOptionsTab() },
-                new TabItem { Header = "Platform", Content = BuildPlatformTab() }
+                CreateTabItem("Activity", BuildActivityTab()),
+                CreateTabItem("Torrents", BuildTorrentsTab()),
+                CreateTabItem("Options", BuildOptionsTab()),
+                CreateTabItem("Platform", BuildPlatformTab())
             }
         };
 
@@ -138,9 +141,8 @@ public sealed class MainWindow : Window
                 Place(new Border
                 {
                     Background = RatioGhostPalette.Surface,
-                    BorderBrush = RatioGhostPalette.Border,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(16),
+                    BoxShadow = RatioGhostPalette.PanelShadow,
+                    CornerRadius = new CornerRadius(20),
                     Padding = new Thickness(8),
                     Child = tabs
                 }, row: 1)
@@ -285,9 +287,8 @@ public sealed class MainWindow : Window
         var torrentSurface = new Border
         {
             Background = RatioGhostPalette.SurfaceSubtle,
-            BorderBrush = RatioGhostPalette.Border,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(14),
+            BoxShadow = RatioGhostPalette.CardShadow,
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(14),
             Child = new Grid
             {
@@ -300,6 +301,7 @@ public sealed class MainWindow : Window
                         Text = "Hash · tracker · peers · status · transfer counters · last announce",
                         FontSize = 12,
                         Foreground = RatioGhostPalette.Muted,
+                        FontFeatures = RatioGhostPalette.TabularNumbers,
                         TextWrapping = Avalonia.Media.TextWrapping.Wrap
                     },
                     Place(_torrents, row: 1),
@@ -753,9 +755,8 @@ public sealed class MainWindow : Window
         dialog.Content = new Border
         {
             Background = RatioGhostPalette.Surface,
-            BorderBrush = RatioGhostPalette.Border,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(14),
+            BoxShadow = RatioGhostPalette.PanelShadow,
+            CornerRadius = new CornerRadius(18),
             Margin = new Thickness(12),
             Padding = new Thickness(18),
             Child = new StackPanel
@@ -910,9 +911,8 @@ public sealed class MainWindow : Window
         return new Border
         {
             Background = RatioGhostPalette.SurfaceSubtle,
-            BorderBrush = RatioGhostPalette.Border,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(14),
+            BoxShadow = RatioGhostPalette.CardShadow,
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(14),
             Child = list
         };
@@ -923,9 +923,8 @@ public sealed class MainWindow : Window
         return new Border
         {
             Background = RatioGhostPalette.SurfaceSubtle,
-            BorderBrush = RatioGhostPalette.Border,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(14),
+            BoxShadow = RatioGhostPalette.CardShadow,
+            CornerRadius = new CornerRadius(16),
             Padding = new Thickness(16),
             Child = new StackPanel
             {
@@ -997,6 +996,7 @@ public sealed class MainWindow : Window
         list.BorderThickness = new Thickness(0);
         list.Foreground = RatioGhostPalette.Ink;
         list.FontSize = 12;
+        list.FontFeatures = RatioGhostPalette.TabularNumbers;
         list.Padding = new Thickness(0);
     }
 
@@ -1005,13 +1005,14 @@ public sealed class MainWindow : Window
         input.Background = RatioGhostPalette.Surface;
         input.BorderBrush = RatioGhostPalette.Border;
         input.BorderThickness = new Thickness(1);
-        input.CornerRadius = new CornerRadius(10);
+        input.CornerRadius = new CornerRadius(12);
         input.Foreground = RatioGhostPalette.Ink;
         input.FontSize = 13;
-        input.MinHeight = 38;
+        input.FontFeatures = RatioGhostPalette.TabularNumbers;
+        input.MinHeight = 40;
         input.MinWidth = 180;
         input.Width = 220;
-        input.Padding = new Thickness(11, 8);
+        input.Padding = new Thickness(12, 8);
         input.PlaceholderText = watermark;
         input.HorizontalAlignment = HorizontalAlignment.Left;
     }
@@ -1021,7 +1022,8 @@ public sealed class MainWindow : Window
         checkBox.Foreground = RatioGhostPalette.Ink;
         checkBox.FontSize = 13;
         checkBox.HorizontalAlignment = HorizontalAlignment.Left;
-        checkBox.Margin = new Thickness(0, 0, 0, 2);
+        checkBox.MinHeight = 40;
+        checkBox.Margin = new Thickness(0);
     }
 
     private static Button CreateButton(string content, ButtonTone tone, double minWidth)
@@ -1054,9 +1056,10 @@ public sealed class MainWindow : Window
         button.FontWeight = FontWeight.SemiBold;
         button.HorizontalContentAlignment = HorizontalAlignment.Center;
         button.VerticalContentAlignment = VerticalAlignment.Center;
-        button.MinHeight = 38;
+        button.MinHeight = 40;
         button.MinWidth = minWidth;
-        button.Padding = new Thickness(12, 8);
+        button.Padding = new Thickness(14, 8);
+        ConfigureButtonPressMotion(button);
     }
 
     private static void AddField(Grid grid, int row, string label, Control editor)
@@ -1090,9 +1093,81 @@ public sealed class MainWindow : Window
         public static readonly SolidColorBrush Accent = Brush("#3838A5");
         public static readonly SolidColorBrush AccentSoft = Brush("#ECECFF");
         public static readonly SolidColorBrush OnAccent = Brush("#FFFFFF");
+        public static readonly FontFeatureCollection TabularNumbers =
+            FontFeatureCollection.Parse("tnum");
+        public static readonly BoxShadows PanelShadow = new(
+            new BoxShadow
+            {
+                Color = Color.FromArgb(24, 0, 0, 0),
+                Blur = 22,
+                Spread = -2,
+                OffsetY = 8
+            },
+            new[]
+            {
+                new BoxShadow
+                {
+                    Color = Color.FromArgb(16, 0, 0, 0),
+                    Blur = 4,
+                    OffsetY = 1
+                }
+            });
+        public static readonly BoxShadows CardShadow = new(
+            new BoxShadow
+            {
+                Color = Color.FromArgb(18, 0, 0, 0),
+                Blur = 12,
+                Spread = -2,
+                OffsetY = 3
+            });
 
         private static SolidColorBrush Brush(string hex) =>
             new(Color.Parse(hex));
+    }
+
+    private static TabItem CreateTabItem(string header, Control content) =>
+        new()
+        {
+            Header = header,
+            Content = content,
+            MinHeight = 40,
+            Padding = new Thickness(16, 10)
+        };
+
+    private static void ConfigureButtonPressMotion(Button button)
+    {
+        var transform = new ScaleTransform(1, 1)
+        {
+            Transitions = new Transitions
+            {
+                new DoubleTransition
+                {
+                    Property = ScaleTransform.ScaleXProperty,
+                    Duration = TimeSpan.FromMilliseconds(140),
+                    Easing = new CubicEaseOut()
+                },
+                new DoubleTransition
+                {
+                    Property = ScaleTransform.ScaleYProperty,
+                    Duration = TimeSpan.FromMilliseconds(140),
+                    Easing = new CubicEaseOut()
+                }
+            }
+        };
+        button.RenderTransform = transform;
+        button.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
+        button.PointerPressed += (_, _) => SetButtonScale(button, 0.96);
+        button.PointerReleased += (_, _) => SetButtonScale(button, 1);
+        button.PointerCaptureLost += (_, _) => SetButtonScale(button, 1);
+    }
+
+    private static void SetButtonScale(Button button, double scale)
+    {
+        if (button.RenderTransform is not ScaleTransform transform)
+            return;
+
+        transform.ScaleX = scale;
+        transform.ScaleY = scale;
     }
 
     private static T Place<T>(T control, int row = 0, int column = 0) where T : Control

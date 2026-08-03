@@ -16,6 +16,8 @@ namespace RatioGhost.Proxy;
 public sealed class HttpProxyServer : IAsyncDisposable
 {
     private const int MaximumHeaderBytes = 64 * 1024;
+    private const int MaximumOutboundAttempts = 2;
+    private static readonly TimeSpan OutboundRetryDelay = TimeSpan.FromMilliseconds(250);
     private readonly AnnounceTransformer _transformer;
     private readonly Func<RatioGhostSettings> _settings;
     private readonly ICertificateAuthorityService? _certificates;
@@ -142,7 +144,7 @@ public sealed class HttpProxyServer : IAsyncDisposable
             PublishActivity(new ProxyEvent(
                 DateTimeOffset.Now,
                 AnnounceDisposition.RejectedInvalid,
-                $"Unexpected connection failure: {exception.Message}"));
+                $"Unexpected connection failure: {DescribeException(exception)}"));
         }
         finally
         {
@@ -167,7 +169,7 @@ public sealed class HttpProxyServer : IAsyncDisposable
                                           InvalidOperationException or ArgumentException)
         {
             PublishActivity(new ProxyEvent(DateTimeOffset.Now, AnnounceDisposition.RejectedInvalid,
-                $"Connection failed: {exception.Message}"));
+                $"Connection failed: {DescribeException(exception)}"));
         }
         finally
         {
@@ -260,11 +262,16 @@ public sealed class HttpProxyServer : IAsyncDisposable
             cancellationToken);
         await clientStream.FlushAsync(cancellationToken);
 
+        string? tlsServerName = null;
         using var tlsStream = new SslStream(clientStream, leaveInnerStreamOpen: true);
         await tlsStream.AuthenticateAsServerAsync(
             new SslServerAuthenticationOptions
             {
-                ServerCertificate = serverCertificate,
+                ServerCertificateSelectionCallback = (_, serverName) =>
+                {
+                    tlsServerName = string.IsNullOrWhiteSpace(serverName) ? null : serverName;
+                    return serverCertificate;
+                },
                 ClientCertificateRequired = false,
                 EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck
@@ -290,11 +297,19 @@ public sealed class HttpProxyServer : IAsyncDisposable
             return;
         }
 
+        if (!TryGetHostHeader(lines, port, out var headerHost))
+        {
+            await WriteErrorAsync(tlsStream, 400, "Invalid HTTPS Host header", cancellationToken);
+            return;
+        }
+
+        var requestHost = SelectLogicalHost(host, headerHost, tlsServerName);
         Uri target;
         if (requestTarget.IsAbsoluteUri)
         {
             if (!requestTarget.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-                !requestTarget.Host.Equals(host, StringComparison.OrdinalIgnoreCase) ||
+                (!requestTarget.Host.Equals(host, StringComparison.OrdinalIgnoreCase) &&
+                 !requestTarget.Host.Equals(requestHost, StringComparison.OrdinalIgnoreCase)) ||
                 requestTarget.Port != port)
             {
                 await WriteErrorAsync(
@@ -304,12 +319,12 @@ public sealed class HttpProxyServer : IAsyncDisposable
                     cancellationToken);
                 return;
             }
-            target = requestTarget;
+            target = BuildHttpsTarget(requestHost, port, requestTarget.PathAndQuery);
         }
         else
         {
             var resource = firstLine[1].StartsWith('/') ? firstLine[1] : "/" + firstLine[1];
-            target = new Uri(new UriBuilder(Uri.UriSchemeHttps, host, port).Uri, resource);
+            target = BuildHttpsTarget(requestHost, port, resource);
         }
         await ForwardHttpRequestAsync(tlsStream, lines, target, settings, cancellationToken);
     }
@@ -330,14 +345,175 @@ public sealed class HttpProxyServer : IAsyncDisposable
             return;
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, result.Target);
-        CopyRequestHeaders(lines.Skip(1), request);
-        using var response = await _httpClient.SendAsync(
-            request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        var body = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-        if (result.InfoHash is not null)
-            _transformer.ObserveTrackerResponse(result.InfoHash, TrackerResponseParser.Parse(body));
-        await WriteResponseAsync(clientStream, response, body, cancellationToken);
+        HttpResponseMessage response;
+        try
+        {
+            response = await SendTrackerRequestAsync(
+                result.Target,
+                lines.Skip(1),
+                cancellationToken);
+        }
+        catch (Exception exception) when (IsOutboundFailure(exception) &&
+                                          !cancellationToken.IsCancellationRequested)
+        {
+            PublishActivity(new ProxyEvent(
+                DateTimeOffset.Now,
+                AnnounceDisposition.RejectedInvalid,
+                $"Tracker connection failed for {FormatEndpoint(result.Target)}: {DescribeException(exception)}",
+                result.Target,
+                result.InfoHash));
+            await WriteErrorAsync(clientStream, 502, "Tracker connection failed", cancellationToken);
+            return;
+        }
+
+        using (response)
+        {
+            byte[] body;
+            try
+            {
+                body = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            }
+            catch (Exception exception) when (IsOutboundFailure(exception) &&
+                                              !cancellationToken.IsCancellationRequested)
+            {
+                PublishActivity(new ProxyEvent(
+                    DateTimeOffset.Now,
+                    AnnounceDisposition.RejectedInvalid,
+                    $"Tracker response failed for {FormatEndpoint(result.Target)}: {DescribeException(exception)}",
+                    result.Target,
+                    result.InfoHash));
+                await WriteErrorAsync(clientStream, 502, "Tracker response failed", cancellationToken);
+                return;
+            }
+
+            if (result.InfoHash is not null)
+                _transformer.ObserveTrackerResponse(result.InfoHash, TrackerResponseParser.Parse(body));
+            await WriteResponseAsync(clientStream, response, body, cancellationToken);
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendTrackerRequestAsync(
+        Uri target,
+        IEnumerable<string> headerLines,
+        CancellationToken cancellationToken)
+    {
+        Exception? lastException = null;
+        for (var attempt = 1; attempt <= MaximumOutboundAttempts; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, target);
+            CopyRequestHeaders(headerLines, request);
+            try
+            {
+                return await _httpClient.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (IsOutboundFailure(exception) &&
+                                              attempt < MaximumOutboundAttempts &&
+                                              !cancellationToken.IsCancellationRequested)
+            {
+                lastException = exception;
+                await Task.Delay(OutboundRetryDelay, cancellationToken);
+            }
+        }
+
+        throw lastException ?? new InvalidOperationException("The tracker request ended without a response.");
+    }
+
+    private static bool IsOutboundFailure(Exception exception) =>
+        exception is HttpRequestException or SocketException or IOException or
+        TaskCanceledException or AuthenticationException or CryptographicException;
+
+    private static Uri BuildHttpsTarget(string host, int port, string resource)
+    {
+        var baseUri = new UriBuilder(Uri.UriSchemeHttps, host, port).Uri;
+        return new Uri(baseUri, resource.StartsWith('/') ? resource : "/" + resource);
+    }
+
+    private static string SelectLogicalHost(
+        string authorityHost,
+        string? headerHost,
+        string? tlsServerName)
+    {
+        if (!IPAddress.TryParse(authorityHost, out _))
+            return authorityHost;
+
+        if (IsDnsHost(headerHost))
+            return headerHost!;
+        if (IsDnsHost(tlsServerName))
+            return tlsServerName!;
+        return authorityHost;
+    }
+
+    private static bool IsDnsHost(string? host) =>
+        !string.IsNullOrWhiteSpace(host) && Uri.CheckHostName(host) == UriHostNameType.Dns;
+
+    private static bool TryGetHostHeader(
+        IEnumerable<string> lines,
+        int expectedPort,
+        out string? host)
+    {
+        host = null;
+        string? value = null;
+        foreach (var line in lines.Skip(1))
+        {
+            var colon = line.IndexOf(':');
+            if (colon <= 0 || !line[..colon].Trim().Equals("Host", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (value is not null)
+                return false;
+            value = line[(colon + 1)..].Trim();
+        }
+
+        return value is null || TryParseHostHeader(value, expectedPort, out host);
+    }
+
+    private static bool TryParseHostHeader(
+        string value,
+        int expectedPort,
+        out string host)
+    {
+        host = string.Empty;
+        if (value.Length == 0 || value.Any(char.IsWhiteSpace) ||
+            !Uri.TryCreate($"https://{value}", UriKind.Absolute, out var parsed) ||
+            parsed.UserInfo.Length > 0 ||
+            parsed.AbsolutePath != "/" ||
+            parsed.Query.Length > 0 ||
+            parsed.Fragment.Length > 0 ||
+            parsed.Port != expectedPort ||
+            Uri.CheckHostName(parsed.Host) == UriHostNameType.Unknown)
+        {
+            return false;
+        }
+
+        host = parsed.Host;
+        return true;
+    }
+
+    private static string FormatEndpoint(Uri target)
+    {
+        var host = target.Host.Contains(':')
+            ? $"[{target.Host}]"
+            : target.Host;
+        return target.IsDefaultPort ? host : $"{host}:{target.Port}";
+    }
+
+    private static string DescribeException(Exception exception)
+    {
+        var messages = new List<string>();
+        var current = exception;
+        for (var depth = 0; current is not null && depth < 4; depth++, current = current.InnerException)
+        {
+            var message = current.Message.Trim().Replace('\r', ' ').Replace('\n', ' ');
+            if (message.Length == 0)
+                continue;
+            messages.Add($"{current.GetType().Name}: {message}");
+        }
+
+        return messages.Count == 0
+            ? exception.GetType().Name
+            : string.Join(" -> ", messages);
     }
 
     private RatioGhostSettings GetEffectiveSettings(TcpClient client)
