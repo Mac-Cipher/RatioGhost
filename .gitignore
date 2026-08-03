@@ -1,26 +1,17 @@
-# Build artifacts
-ratioghost.exe
-ratioghost.exe.sha256
-ratioghost-new.exe
-ratioghost-*.exe
-ratioghost.exe.bak-*
+# .NET build outputs
+**/bin/
+**/obj/
+artifacts/
+TestResults/
 
 # OS generated files
 .DS_Store
 Thumbs.db
 
 # Temporary test files
-rghost.vfs/lib/app-ghost/test_write.txt
 *.log
 *.tmp
 *.key
 
 # Local QA and generated trust store
 .codex/qa/
-rghost.vfs/tls/cacert.pem
-
-# .NET migration artifacts
-**/bin/
-**/obj/
-artifacts/
-TestResults/

@@ -64,7 +64,7 @@ public sealed class App : Application
 
     internal static WindowIcon CreateAppIcon()
     {
-        using var iconStream = AssetLoader.Open(new Uri("avares://RatioGhost/Assets/tclkit.ico"));
+        using var iconStream = AssetLoader.Open(new Uri("avares://RatioGhost/Assets/RatioGhost.ico"));
         return new WindowIcon(iconStream);
     }
 

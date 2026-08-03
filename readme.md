@@ -1,210 +1,90 @@
-﻿# 👻 Ratio Ghost
+# 👻 Ratio Ghost
 
-[![Tcl/Tk Version](https://img.shields.io/badge/Tcl%2FTk-8.6-blue.svg)](http://tcl.tk/)
+[![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4.svg)](https://dotnet.microsoft.com/)
+[![Avalonia](https://img.shields.io/badge/UI-Avalonia-8B5CF6.svg)](https://avaloniaui.net/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-green.svg)](license.txt)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)](#)
 
 Translations: [🇬🇧 English](readme.md) | [🇫🇷 Français](README.fr.md)
 
-Ratio Ghost is a lightweight, local HTTP/HTTPS intercepting proxy designed to automatically modify and improve your BitTorrent ratio reported to private trackers.
+Ratio Ghost is a local HTTP/HTTPS proxy that rewrites the announces sent by your BitTorrent client to private trackers.
 
-Written in Tcl/Tk, it acts as a man-in-the-middle proxy between your BitTorrent client (e.g., uTorrent, qBittorrent) and the tracker, seamlessly adjusting your upload and download statistics on the fly.
+The application is written in C#/.NET 10 and uses Avalonia for its desktop interface. The proxy is bound to `localhost` and only intercepts tracker traffic.
 
-> [!NOTE]
-> A progressive C#/.NET 10 + Avalonia migration now lives side by side with the Tcl application. The Windows milestone includes the HTTP/HTTPS proxy, an installation-specific local CA with explicit consent, tray integration, persistence, and a self-contained `win-x64` package. Isolated real-qBittorrent HTTP and HTTPS announce tests, an initial same-input comparison against Tcl, and the attended Windows Root-store round trip (1/1) now pass on Windows. Packaged UI consent, qBittorrent validation with the trusted root enabled, and the complete macOS/Linux desktop integrations remain pending; Linux XDG and macOS LaunchAgent autostart file services are covered separately with collision-safe tests. See [`docs/MIGRATION.md`](docs/MIGRATION.md).
+## Features
 
----
+- Configurable upload and download counter rewriting.
+- FreeLeech mode and Pretend to Seed.
+- Leecher threshold, multipliers, upload boost, and rewrite pause.
+- HTTP proxy and HTTPS interception with explicit consent.
+- Installation-specific CA and per-host certificates.
+- Avalonia interface, activity log, Windows tray, and autostart.
+- Optional diagnostic logging with tracker identifiers redacted.
 
-## ✨ Key Features
+## Download for Windows
 
-- **Smart Ratio Manipulation**:
-  - Dynamically calculates reported upload based on configurable multipliers.
-  - Custom upload multipliers for different peer count scenarios (avoids flags on low-leecher torrents).
-  - Add artificial speed boosts (e.g., random spikes of 0 to $X$ KB/s with a configurable chance).
-- **Stealth Options**:
-  - **FreeLeech Mode**: Report download amounts as zero while still gaining upload credits.
-  - **Pretend to Seed**: Mark download status as complete (zero bytes left) to appear as a seeder immediately.
-- **Security & Scope**:
-  - Limit connections to localhost (`127.0.0.1`) only to prevent external access.
-  - Intercept only tracker traffic (ignores regular HTTP/HTTPS web requests).
-- **Windows & Portable**:
-  - Tested and released for Windows.
-  - Builds into a single `.exe` binary with its TLS trust store included.
+Published releases contain the self-contained .NET archive:
 
----
+1. Open the [Releases](https://github.com/Mac-Cipher/RatioGhost/releases) page.
+2. Download `RatioGhost-dotnet-win-x64.zip` and its `.sha256` file.
+3. Verify the checksum before extracting the archive:
 
-## 🛠️ Download & Installation
-
-### 1. Pre-built Executable (Windows)
-To run Ratio Ghost without any installation or compilation:
-
-1. Go to the [Releases](https://github.com/Mac-Cipher/RatioGhost/releases) page.
-2. Download the **`ratioghost.exe`** file from the latest version.
-3. Download `ratioghost.exe.sha256` and verify the executable before launching it:
    ```powershell
-   Get-FileHash .\ratioghost.exe -Algorithm SHA256
-   Get-Content .\ratioghost.exe.sha256
+   Get-FileHash .\RatioGhost-dotnet-win-x64.zip -Algorithm SHA256
+   Get-Content .\RatioGhost-dotnet-win-x64.zip.sha256
    ```
-4. Double-click the verified executable to launch the application.
 
-> [!NOTE]
-> If SmartScreen warns about the unsigned executable, run it only after the SHA-256 matches the checksum published with the GitHub release.
+4. Extract the archive and run `RatioGhost.exe`.
 
-### .NET Windows milestone preview
+Enabling HTTPS requires confirmation in the **Platform** tab and then in the Windows security dialog. The officially packaged target is `win-x64`.
 
-Tagged releases keep the Tcl executable above and publish `RatioGhost-dotnet-win-x64.zip` separately with `RatioGhost-dotnet-win-x64.zip.sha256`. Verify the checksum, extract the archive, and run `RatioGhost.exe`. Enabling HTTPS requires explicit confirmation on the **Platform** tab followed by the Windows security dialog. This package is the Windows migration milestone; read [`docs/MIGRATION.md`](docs/MIGRATION.md) before replacing a Tcl deployment.
+## Run from source
 
-### 2. Running From Source
-Windows remains the only supported runtime environment. CI compiles Avalonia and runs the common .NET plus platform-boundary tests on Windows, Linux, and macOS; Ubuntu WSL exercises the collision-safe Linux XDG autostart service and macOS has an injected-path LaunchAgent file test, but the full desktop application, Linux/macOS trust stores, and native tray/session integrations are not yet validated. The Tcl/Tk application requires Windows, Tcl/Tk 8.6, and the native libraries included in this repository.
-
-Open a terminal in the project directory and run:
-```bash
-wish rghost.vfs/main.tcl
-```
-
----
-
-## ⚙️ Torrent Client Configuration
-
-To route your torrent tracker announces through Ratio Ghost:
-
-1. Launch **Ratio Ghost**. It will listen locally on:
-   - **HTTP Port**: `3773`
-   - **HTTPS Port**: `3774`
-2. Open your torrent client settings/preferences.
-3. Go to **Connection** or **Proxy Server** settings.
-4. Set the Proxy type to **HTTP**.
-5. Set Host/Address to `127.0.0.1` and Port to `3773`.
-6. Enable the option: *"Use proxy for hostname lookups"* (or *"Use proxy for peer-to-peer connections"* if your tracker requires it, although Ratio Ghost is designed to intercept tracker requests, not peer connections).
-
-#### 🔹 qBittorrent Configuration Details
-1. Open qBittorrent and go to **Tools** -> **Options** (or press `Alt + O`).
-2. Click on the **Connection** tab in the left panel.
-3. Scroll down to the **Proxy Server** section:
-   - **Type**: Select HTTP.
-   - **Host/Address**: Enter 127.0.0.1.
-   - **Port**: Always enter `3773`, including for HTTPS trackers (`CONNECT` is intercepted locally so tracker announces can be adjusted).
-4. Ensure the following options are set:
-   - **Use proxy for peer connections**: ❌ *Leave unchecked* (Ratio Ghost is not a peer proxy, routing peer data will fail).
-   - **Use proxy for torrent transmission**: Check this! (Required to route tracker announces through the proxy).
-   - **Perform hostname lookups via proxy**: Check this.
-5. Click **Apply** and **OK**.
-
-#### 🔹 uTorrent / BitTorrent Configuration Details
-1. Open uTorrent and go to **Options** -> **Preferences** (or press `Ctrl + P`).
-2. Click on the **Connection** tab in the left panel.
-3. Locate the **Proxy Server** section:
-   - **Type**: Select HTTP.
-   - **Proxy**: Enter 127.0.0.1.
-   - **Port**: Enter 3773.
-4. Ensure the following options are set:
-   - **Use proxy for peer-to-peer connections**: ❌ *Leave unchecked*.
-   - **Resolve hostnames through proxy**: Check this.
-   - **Use proxy for tracker communications**: Check this.
-5. Click **Apply** and **OK**.
-
-> [!IMPORTANT]
-> Ratio Ghost modifies HTTP and HTTPS tracker announces. HTTPS is decrypted only on localhost, then re-encrypted to the tracker with CA-chain and hostname validation. It does not route or hide peer-to-peer upload/download traffic, so your IP remains visible to peers in the swarm.
-
-> [!WARNING]
-> The legacy Tcl executable still uses one unique self-signed local certificate. The new .NET application instead uses an installation-specific CA and per-host certificates. Its attended Windows Root-store lifecycle now passes 1/1 and cleans up exactly; the packaged UI consent and qBittorrent validation with the trusted root enabled still require a dedicated attended interoperability test. Keep Ratio Ghost bound to localhost.
-
----
-
-## 📖 Usage Instructions
-
-Once Ratio Ghost is running and your torrent client is configured to route through it, you can customize how your ratio is modified:
-
-### 1. General Interface
-- **Log Tab**: Displays real-time spoofing activity. Double-click any log line to see detailed connection data and exact intercept values.
-- **Options Tab**: Where you configure the ratio-spoofing engine behavior.
-
-### 2. Spoofing Settings (Options Tab)
-- **Report download as zero**: (Highly Recommended) Freezes your reported download amount at 0.
-- **Pretend to seed**: Marks you as a seeder immediately by reporting 0 bytes left.
-- **Leechers Check**: Set the minimum leechers threshold (default is 5). If a torrent has fewer leechers, it reports actual stats to avoid looking suspicious.
-- **Multipliers**: Set the random multiplier range for both upload/download (e.g. 4.0 to 8.0 times) which will be added to your reported upload.
-- **Upload Boost**: Add a random speed boost (e.g., up to 15 KB/s with a 5% chance) to simulate real activity.
-- **Redacted proxy debug log**: Opt in to a rotating profile log with tracker credentials and token-like path segments masked.
-
-### 3. Background Execution
-- **File -> Hide**: Minimizes the application to the Windows System Tray (Systray).
-- **File -> Exit**: Exits the application entirely. Alternatively, right-click the system tray icon and choose **Exit**.
-
----
-
-## 🚀 How it Works
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant TorrentClient as Torrent Client
-    participant RatioGhost as Ratio Ghost (Local Proxy)
-    participant Tracker as Torrent Tracker
-
-    TorrentClient->>RatioGhost: Announce request (Upload: 10MB, Download: 5MB)
-    Note over RatioGhost: Proxy intercepts request,<br/>calculates spoofed stats<br/>based on options.
-    RatioGhost->>Tracker: Announce request (Upload: 45MB, Download: 0MB)
-    Tracker-->>RatioGhost: Response (Peer list, tracker stats)
-    RatioGhost-->>TorrentClient: Forwarded Response
-```
-
----
-
-## 📦 Building & Packaging (Standalone EXE)
-
-If you have modified the source code in `rghost.vfs/` and want to compile a new standalone Windows executable:
-
-### Prerequisites
-Make sure the following files are present in the root folder:
-- `tclkit.exe` (32-bit Tcl/Tk runtime to ensure compatibility with native libraries like `Winico`)
-- `tclkitsh.exe` (32-bit console runtime)
-- `sdx.kit` (Starkit Developer Extension utility)
-
-### Compilation Command
-Run the following PowerShell command in the project root:
+Prerequisite: .NET SDK `10.0.302`.
 
 ```powershell
-.\tclkitsh.exe sdx.kit wrap ratioghost.exe -runtime .\tclkit.exe -vfs rghost.vfs
+dotnet restore .\RatioGhost.slnx
+dotnet run --project .\src\RatioGhost.Desktop\RatioGhost.Desktop.csproj
 ```
 
-### Tests
+To route torrent tracker announces through Ratio Ghost:
 
-Run the automated Tcl tests before packaging:
+1. Configure an HTTP proxy at `127.0.0.1:3773`.
+2. Enable hostname resolution through the proxy.
+3. Do not use Ratio Ghost as a peer-to-peer proxy.
+
+For qBittorrent, enable the proxy for tracker communications and leave peer-to-peer connections disabled.
+
+Ratio Ghost does not hide peer-to-peer traffic or modify connections between peers.
+
+## Configuration migration
+
+The current configuration is stored as JSON in the Ratio Ghost profile. If `settings.json` does not exist yet, the application can import an existing `settings.dat` as data only, without executing code, and then write the JSON configuration. The original files are left unchanged.
+
+## Development and verification
 
 ```powershell
-.\tclkitsh.exe tests\all.tcl
-```
-
-For the Windows-first .NET package, run the publish/package smoke sequence from PowerShell:
-
-```powershell
+dotnet test .\tests-dotnet\RatioGhost.Core.Tests\RatioGhost.Core.Tests.csproj -c Release
+dotnet test .\tests-dotnet\RatioGhost.Proxy.Tests\RatioGhost.Proxy.Tests.csproj -c Release
+dotnet test .\tests-dotnet\RatioGhost.Desktop.Tests\RatioGhost.Desktop.Tests.csproj -c Release
+dotnet build .\RatioGhost.slnx -c Release
 .\scripts\package-win-x64.ps1
 .\scripts\smoke-win-x64.ps1
 ```
 
-Ratio Ghost generates a unique local TLS certificate and private key in the user profile for HTTPS tracker interception. The private key is never shipped in the repository or release executable. Persistent proxy debug logging is disabled by default; when explicitly enabled, the .NET proxy writes a rotating log after redacting tracker credentials and token-like path segments.
+The Windows trust test is intentionally opt-in and displays a security dialog. Run it only with explicit consent.
 
-> [!TIP]
-> **Why 32-bit?**
-> The application uses the `Winico` package for Windows system tray integration, which contains a native 32-bit DLL (`Winico06.dll`). Packaging using a 32-bit runtime avoids architecture mismatch crashes on startup.
+## Architecture
 
----
+- `src/RatioGhost.Core`: configuration, parsing, and announce transformation.
+- `src/RatioGhost.Proxy`: asynchronous HTTP/HTTPS proxy, network limits, and redacted logging.
+- `src/RatioGhost.Desktop`: Avalonia interface, Windows tray, certificates, and autostart.
+- `tests-dotnet`: unit, network integration, and packaging tests.
+- `scripts`: Windows publishing, packaging, and smoke tests.
+- `assets`: application resources.
 
-## 📂 Project Architecture
+The repository contains one application implementation: .NET/Avalonia. Linux and macOS builds validate platform boundaries and compilation; the official desktop distribution remains Windows.
 
-- `rghost.vfs/`: The Virtual File System containing code and assets.
-  - `rghost.vfs/main.tcl`: Entrypoint script.
-  - `rghost.vfs/lib/app-ghost/ghost.tcl`: Startup, configuration manager, and scheduler.
-  - `rghost.vfs/lib/app-ghost/proxy.tcl`: Main intercepting HTTP/HTTPS proxy engine.
-  - `rghost.vfs/lib/app-ghost/gui.tcl`: Tk-based user interface.
-  - `rghost.vfs/lib/app-ghost/util.tcl`: Helper utilities and formatting functions.
-  - `rghost.vfs/lib/app-ghost/update.tcl`: Software update checker.
+## License
 
----
-
-## 📝 License
-
-Distributed under the GNU General Public License v3. See [`license.txt`](license.txt) for more details.
-
-
+Distributed under the GNU General Public License v3. See [`license.txt`](license.txt).
