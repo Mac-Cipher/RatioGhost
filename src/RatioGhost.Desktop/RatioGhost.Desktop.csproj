@@ -12,6 +12,7 @@
     <ProjectReference Include="../RatioGhost.Core/RatioGhost.Core.csproj" />
     <ProjectReference Include="../RatioGhost.Proxy/RatioGhost.Proxy.csproj" />
     <AvaloniaResource Include="../../logo.png" Link="Assets/logo.png" />
+    <AvaloniaResource Include="../../rghost.vfs/tclkit.ico" Link="Assets/tclkit.ico" />
     <InternalsVisibleTo Include="RatioGhost.Desktop.Tests" />
   </ItemGroup>
 </Project>

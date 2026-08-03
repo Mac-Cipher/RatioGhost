@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform;
+using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 using RatioGhost.Core.Configuration;
 using RatioGhost.Core.Platform;
@@ -14,7 +15,11 @@ public sealed class App : Application
 {
     private TrayIcon? _trayIcon;
 
-    public override void Initialize() => Styles.Add(new FluentTheme());
+    public override void Initialize()
+    {
+        RequestedThemeVariant = ThemeVariant.Light;
+        Styles.Add(new FluentTheme());
+    }
 
     public override void OnFrameworkInitializationCompleted()
     {
@@ -46,16 +51,21 @@ public sealed class App : Application
         MainWindow window,
         IClassicDesktopStyleApplicationLifetime desktop)
     {
-        using var iconStream = AssetLoader.Open(new Uri("avares://RatioGhost/Assets/logo.png"));
         var tray = new TrayIcon
         {
-            Icon = new WindowIcon(iconStream),
+            Icon = CreateAppIcon(),
             ToolTipText = "RatioGhost",
             Menu = BuildTrayMenu(window),
             IsVisible = true
         };
         tray.Clicked += (_, _) => window.ShowFromTray();
         return tray;
+    }
+
+    internal static WindowIcon CreateAppIcon()
+    {
+        using var iconStream = AssetLoader.Open(new Uri("avares://RatioGhost/Assets/tclkit.ico"));
+        return new WindowIcon(iconStream);
     }
 
     internal static NativeMenu BuildTrayMenu(MainWindow window)
