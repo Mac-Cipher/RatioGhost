@@ -20,6 +20,16 @@ public sealed class MainWindowSurfaceTests
             trayAvailable: false,
             startMinimizedSetting: true,
             minimizedCommandLine: true));
+        Assert.True(MainWindow.ShouldHideAfterStartup(
+            trayAvailable: true,
+            startMinimizedSetting: true,
+            minimizedCommandLine: false,
+            restoreRequested: false));
+        Assert.False(MainWindow.ShouldHideAfterStartup(
+            trayAvailable: true,
+            startMinimizedSetting: true,
+            minimizedCommandLine: false,
+            restoreRequested: true));
         Assert.True(MainWindow.ShouldHideOnWindowClose(trayAvailable: true));
         Assert.False(MainWindow.ShouldHideOnWindowClose(trayAvailable: false));
 

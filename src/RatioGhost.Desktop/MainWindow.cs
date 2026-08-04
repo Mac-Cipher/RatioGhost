@@ -55,6 +55,8 @@ public sealed class MainWindow : Window
     private bool _exiting;
     private bool _paused;
     private bool _sessionPersisted;
+    private bool _startupInitializationStarted;
+    private bool _restoreRequested;
     private DateTimeOffset _sessionStarted;
 
     public MainWindow(
@@ -89,6 +91,16 @@ public sealed class MainWindow : Window
         bool startMinimizedSetting,
         bool minimizedCommandLine) =>
         trayAvailable && (startMinimizedSetting || minimizedCommandLine);
+
+    internal static bool ShouldHideAfterStartup(
+        bool trayAvailable,
+        bool startMinimizedSetting,
+        bool minimizedCommandLine,
+        bool restoreRequested) =>
+        !restoreRequested && ShouldStartMinimized(
+            trayAvailable,
+            startMinimizedSetting,
+            minimizedCommandLine);
 
     internal static bool ShouldHideOnWindowClose(bool trayAvailable) => trayAvailable;
 
@@ -456,6 +468,10 @@ public sealed class MainWindow : Window
 
     private async void OnOpened(object? sender, EventArgs e)
     {
+        if (_startupInitializationStarted)
+            return;
+        _startupInitializationStarted = true;
+
         try
         {
             _sessionStarted = DateTimeOffset.UtcNow;
@@ -478,10 +494,11 @@ public sealed class MainWindow : Window
                 _autoStart.IsChecked = await _autostart.IsEnabledAsync();
             await RefreshCertificateStatusAsync();
             await StartProxyAsync();
-            if (ShouldStartMinimized(
+            if (ShouldHideAfterStartup(
                     IsTrayAvailable(),
                     _settings.StartMinimized,
-                    Environment.GetCommandLineArgs().Contains("--minimized")))
+                    Environment.GetCommandLineArgs().Contains("--minimized"),
+                    _restoreRequested))
                 Hide();
         }
         catch (Exception exception)
@@ -518,6 +535,7 @@ public sealed class MainWindow : Window
 
     public void ShowFromTray()
     {
+        _restoreRequested = true;
         Show();
         WindowState = WindowState.Normal;
         Activate();
